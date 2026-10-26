@@ -13,6 +13,13 @@ require_once __DIR__ . '/../includes/functions.php';
 require_installed();
 $me = require_admin();
 
+// The NetID modes (D-015) have no accounts or passwords here: this screen
+// manages role grants instead, and the account screen below never runs.
+if (auth_uses_netid()) {
+    require __DIR__ . '/../includes/roles-screen.php';
+    exit;
+}
+
 $errors = [];
 
 /** How many accounts can still sign in. */
@@ -27,6 +34,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $userId = (int) ($_POST['user_id'] ?? 0);
 
     if ($action === 'code') {
+        if ($userId !== (int) $me['user_id'] && needs_confirmation()) {
+            $holder = db_one('SELECT username, may_edit_code FROM admin_users WHERE user_id = ?', [$userId]);
+            $has    = (int) ($holder['may_edit_code'] ?? 0) === 1;
+            confirm_page($has ? 'Remove Code Editing' : 'Grant Code Editing',
+                         ($has ? 'Remove' : 'Grant') . ' code editing for '
+                             . (string) ($holder['username'] ?? 'this account') . '?',
+                         $has ? 'Remove' : 'Grant', $_POST, 'users.php', $has);
+        }
         // Nobody may hand it to themselves. One person with an account and a
         // browser should not be able to turn that into permission to rewrite
         // the application; it takes a second administrator, or the console.
@@ -87,6 +102,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($action === 'toggle') {
         $target = db_one('SELECT * FROM admin_users WHERE user_id = ?', [$userId]);
+        if ($target && needs_confirmation()) {
+            $off = (int) $target['active'] === 1;
+            confirm_page($off ? 'Deactivate Account' : 'Reactivate Account',
+                         ($off ? 'Deactivate ' : 'Reactivate ') . (string) $target['username'] . '?',
+                         $off ? 'Deactivate' : 'Reactivate', $_POST, 'users.php');
+        }
         if (!$target) {
             flash('That account no longer exists.', 'error');
         } elseif ((int) $target['active'] === 1 && active_admin_count() <= 1) {
@@ -107,8 +128,8 @@ $admins    = db_all('SELECT * FROM admin_users ORDER BY active DESC, lower(usern
 
 admin_header('users', 'Administrators');
 ?>
-<h1>Administrator accounts</h1>
-<p class="lede">These accounts open the administrative panel and close a monthly export batch. Laboratory users need no account at all.</p>
+<h1>Administrators</h1>
+<p class="lede">These accounts open the administrative panel and close a monthly export. Laboratory users need no account at all.</p>
 
 <?php foreach ($errors as $error): ?>
   <div class="flash flash-error"><?= h($error) ?></div>
@@ -124,7 +145,7 @@ admin_header('users', 'Administrators');
           <tr<?= (int) $row['active'] === 0 ? ' class="is-locked"' : '' ?>>
             <td>
               <strong><?= h($row['username']) ?></strong>
-              <?= (int) $row['user_id'] === (int) $me['user_id'] ? ' <span class="pill pill-ok">you</span>' : '' ?>
+              <?= (int) $row['user_id'] === (int) $me['user_id'] ? ' <span class="pill pill-ok">You</span>' : '' ?>
               <?= (int) $row['active'] === 0 ? ' <span class="pill">inactive</span>' : '' ?>
             </td>
             <td><?= h($row['display_name']) ?></td>
@@ -137,7 +158,9 @@ admin_header('users', 'Administrators');
                 // it is obvious without opening anything.
                 $hasCode = (int) ($row['may_edit_code'] ?? 0) === 1;
               ?>
-              <form method="post" onsubmit="return confirm('<?= $hasCode ? 'Remove' : 'Grant' ?> code editing for <?= h($row['username']) ?>?');">
+              <form method="post"
+                    data-confirm="<?= $hasCode ? 'Remove' : 'Grant' ?> code editing for <?= h($row['username']) ?>?"
+                    data-confirm-ok="<?= $hasCode ? 'Remove' : 'Grant' ?>"<?= $hasCode ? ' data-confirm-danger' : '' ?>>
                 <?= csrf_field() ?>
                 <input type="hidden" name="action" value="code">
                 <input type="hidden" name="user_id" value="<?= (int) $row['user_id'] ?>">
@@ -146,8 +169,10 @@ admin_header('users', 'Administrators');
             </td>
             <td class="nowrap">
               <div class="button-row">
-                <a class="button button-secondary button-small" href="?reset=<?= (int) $row['user_id'] ?>">Reset password</a>
-                <form method="post" onsubmit="return confirm('<?= (int) $row['active'] === 1 ? 'Deactivate' : 'Reactivate' ?> <?= h($row['username']) ?>?');">
+                <a class="button button-secondary button-small" href="?reset=<?= (int) $row['user_id'] ?>">Reset Password</a>
+                <form method="post"
+                      data-confirm="<?= (int) $row['active'] === 1 ? 'Deactivate' : 'Reactivate' ?> <?= h($row['username']) ?>?"
+                      data-confirm-ok="<?= (int) $row['active'] === 1 ? 'Deactivate' : 'Reactivate' ?>">
                   <?= csrf_field() ?>
                   <input type="hidden" name="action" value="toggle">
                   <input type="hidden" name="user_id" value="<?= (int) $row['user_id'] ?>">
@@ -168,7 +193,7 @@ admin_header('users', 'Administrators');
       <?= csrf_field() ?>
       <input type="hidden" name="action" value="reset">
       <input type="hidden" name="user_id" value="<?= (int) $resetting['user_id'] ?>">
-      <h2 class="card-heading">Reset password for <?= h($resetting['username']) ?></h2>
+      <h2 class="card-heading">Reset Password for <?= h($resetting['username']) ?></h2>
       <div class="field">
         <label for="r_password">New password</label>
         <input type="password" id="r_password" name="password" required minlength="10" autocomplete="new-password">
@@ -178,7 +203,7 @@ admin_header('users', 'Administrators');
         <input type="password" id="r_password2" name="password_confirm" required minlength="10" autocomplete="new-password">
       </div>
       <div class="form-actions">
-        <button type="submit" class="button">Reset password</button>
+        <button type="submit" class="button">Reset Password</button>
         <a class="link-quiet" href="users.php">Cancel</a>
       </div>
     </form>
@@ -187,7 +212,7 @@ admin_header('users', 'Administrators');
     <form method="post" class="card form">
       <?= csrf_field() ?>
       <input type="hidden" name="action" value="add">
-      <h2 class="card-heading">Add an administrator</h2>
+      <h2 class="card-heading">Add an Administrator</h2>
 
       <div class="field">
         <label for="a_username">Username</label>
@@ -196,7 +221,7 @@ admin_header('users', 'Administrators');
       <div class="field">
         <label for="a_display">Display name</label>
         <input type="text" id="a_display" name="display_name" autocomplete="off">
-        <p class="hint">Stamped on export batches and void reasons.</p>
+        <p class="hint">Stamped on exports and void reasons.</p>
       </div>
       <div class="field">
         <label for="a_password">Password</label>
@@ -208,7 +233,7 @@ admin_header('users', 'Administrators');
       </div>
 
       <div class="form-actions">
-        <button type="submit" class="button">Add administrator</button>
+        <button type="submit" class="button">Add Administrator</button>
       </div>
     </form>
   </div>

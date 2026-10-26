@@ -1,6 +1,6 @@
 -- Run as the superuser AFTER loading data with Migration/load-data.php.
 --
---   psql -U postgres -h 127.0.0.1 -d pacelab -f Migration/05_reset_sequences.sql
+--   <estate>\runtime\postgresql\17\bin\psql -U postgres -h 127.0.0.1 -p 5433 -d pacelab -f Migration/05_reset_sequences.sql
 --
 -- Rows are loaded with their original ids so that every foreign key still
 -- points where it did. Identity sequences do not advance when an id is
@@ -24,9 +24,9 @@ BEGIN
     FOR r IN
         SELECT c.relname AS table_name, a.attname AS pk
         FROM pg_class c
-        JOIN pg_namespace n ON n.oid = c.relnamespace
-        JOIN pg_index i     ON i.indrelid = c.oid AND i.indisprimary
-        JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = ANY (i.indkey)
+        JOIN pg_namespace n ON n.oid = c.relnamespace -- dialect-ok: PostgreSQL catalog oid columns, not SQLite rowid
+        JOIN pg_index i     ON i.indrelid = c.oid AND i.indisprimary -- dialect-ok: PostgreSQL catalog oid columns, not SQLite rowid
+        JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = ANY (i.indkey) -- dialect-ok: PostgreSQL catalog oid columns, not SQLite rowid
         WHERE n.nspname = 'public' AND c.relkind = 'r'
     LOOP
         seq := pg_get_serial_sequence('public.' || quote_ident(r.table_name), r.pk);

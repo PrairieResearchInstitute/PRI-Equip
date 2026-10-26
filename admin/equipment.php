@@ -1,9 +1,9 @@
 <?php
 /**
- * admin/equipment.php — Add, edit, and retire instruments.
+ * admin/equipment.php — Add, edit, and retire equipment.
  *
  * Retiring sets active to 0. It never deletes, because every historical charge
- * points at the instrument row and the report still has to name it.
+ * points at the equipment row and the report still has to name it.
  */
 
 declare(strict_types=1);
@@ -21,6 +21,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = (string) ($_POST['action'] ?? '');
 
     if ($action === 'retire' || $action === 'restore') {
+        if (needs_confirmation()) {
+            confirm_page($action === 'retire' ? 'Retire Equipment' : 'Restore Equipment',
+                         $action === 'retire'
+                             ? 'Retire this equipment? It stops appearing in the reservation and charging'
+                               . ' lists, its history is kept, and a message to the equipment person will open.'
+                             : 'Put this equipment back on the books?',
+                         $action === 'retire' ? 'Retire' : 'Restore', $_POST, 'equipment.php');
+        }
         $id = (int) ($_POST['equipment_id'] ?? 0);
         $row = equipment_by_id($id);
         if ($row) {
@@ -60,7 +68,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $due  = clean_date($_POST['service_due_date'] ?? null);
 
         if (!$row) {
-            flash('That instrument no longer exists.', 'error');
+            flash('That equipment no longer exists.', 'error');
             redirect('equipment.php');
         }
         if (!array_key_exists($new, picklist('equip_status')) || $new === 'retired') {
@@ -101,7 +109,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $data = [
             'property_tag'         => clean_property_tag($_POST['property_tag'] ?? ''),
-            'equip_class'          => trim((string) ($_POST['equip_class'] ?? 'instrument')),
+            'equip_class'          => trim((string) ($_POST['equip_class'] ?? 'equipment')),
             'name'                 => trim((string) ($_POST['name'] ?? '')),
             'manufacturer'         => trim((string) ($_POST['manufacturer'] ?? '')),
             'model'                => trim((string) ($_POST['model'] ?? '')),
@@ -111,14 +119,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'rate_effective_date'  => clean_date($_POST['rate_effective_date'] ?? null),
             // The account the money lands in is a CFOPA too. PRI already bills
             // its field stations this way: one self-supporting fund, one
-            // activity segment per facility, so A51 and A52 are two instruments
+            // activity segment per facility, so A51 and A52 are two equipment
             // sharing a fund.
             'receiving_subaccount' => cfopa_normalize($_POST['receiving_subaccount'] ?? ''),
             'contact_person'       => trim((string) ($_POST['contact_person'] ?? '')),
             'active'               => isset($_POST['active']) ? 1 : 0,
         ];
 
-        if ($data['name'] === '')                                  { $errors[] = 'The instrument needs a display name.'; }
+        if ($data['name'] === '')                                  { $errors[] = 'The equipment needs a display name.'; }
         if ($data['rate'] < 0)                                     { $errors[] = 'The rate cannot be negative.'; }
         if (!in_array($data['rate_unit'], rate_units(), true))     { $errors[] = 'Choose a rate unit.'; }
         if ($data['receiving_subaccount'] === '')                  { $errors[] = 'The receiving subaccount is required; every charge snapshots it.'; }
@@ -235,7 +243,7 @@ admin_header('equipment', 'Equipment');
     <h2 class="card-heading">
       <?= count($sendable) === 1 ? 'One message to send' : count($sendable) . ' messages to send' ?>
     </h2>
-    <p>The first is opening in Outlook now. Nothing has been sent yet — read each one,
+    <p>The first is opening in Outlook now. Nothing has been sent yet: read each one,
        change it if you want to, and send it yourself.</p>
 
     <ol class="notify-list">
@@ -281,23 +289,23 @@ admin_header('equipment', 'Equipment');
         <table class="data">
           <thead>
             <tr>
-              <th>Instrument</th><th>Kind</th><th>Location</th><th class="num">Rate</th>
+              <th>Equipment</th><th>Kind</th><th>Location</th><th class="num">Rate</th>
               <th>Subaccount</th><th>Held by</th><th></th>
             </tr>
           </thead>
           <tbody>
           <?php if (!$all): ?>
-            <tr><td colspan="7" class="empty">No instruments yet. Add the first one with the form beside this list.</td></tr>
+            <tr><td colspan="7" class="empty">No equipment yet. Add the first piece with the form below this list.</td></tr>
           <?php endif; ?>
           <?php foreach ($all as $row): ?>
             <tr<?= (int) $row['active'] === 0 ? ' class="is-locked"' : '' ?>>
               <td>
                 <a href="?edit=<?= (int) $row['equipment_id'] ?>"><?= h($row['name']) ?></a>
-                <?= (int) $row['active'] === 0 ? ' <span class="pill">retired</span>' : '' ?>
+                <?= (int) $row['active'] === 0 ? ' <span class="pill">Retired</span>' : '' ?>
                 <?php if ((int) $row['active'] === 1 && equipment_is_down($row)): ?>
-                  <span class="pill pill-error">down</span>
+                  <span class="pill pill-error">Down</span>
                 <?php elseif ((int) $row['active'] === 1 && ($row['status'] ?? '') === 'service_due'): ?>
-                  <span class="pill pill-warn">service due</span>
+                  <span class="pill pill-warn">Service Due</span>
                 <?php endif; ?>
                 <?php if ($row['manufacturer'] || $row['model'] || $row['property_tag']): ?>
                   <p class="hint"><?= h(trim($row['manufacturer'] . ' ' . $row['model'])) ?><?= $row['property_tag'] ? ' &middot; ' . h($row['property_tag']) : '' ?></p>
@@ -312,9 +320,10 @@ admin_header('equipment', 'Equipment');
               <td><code><?= h($row['receiving_subaccount']) ?></code></td>
               <td><?= h($row['contact_person']) ?></td>
               <td class="nowrap">
-                <form method="post" onsubmit="return confirm('<?= (int) $row['active'] === 1
-                    ? 'Retire this instrument? It stops appearing in the booking and charging lists, its history is kept, and a message to the equipment person will open.'
-                    : 'Put this instrument back on the books?' ?>');">
+                <form method="post" data-confirm="<?= (int) $row['active'] === 1
+                    ? 'Retire this equipment? It stops appearing in the reservation and charging lists, its history is kept, and a message to the equipment person will open.'
+                    : 'Put this equipment back on the books?' ?>"
+                      data-confirm-ok="<?= (int) $row['active'] === 1 ? 'Retire' : 'Restore' ?>">
                   <?= csrf_field() ?>
                   <input type="hidden" name="equipment_id" value="<?= (int) $row['equipment_id'] ?>">
                   <input type="hidden" name="action" value="<?= (int) $row['active'] === 1 ? 'retire' : 'restore' ?>">
@@ -334,7 +343,7 @@ admin_header('equipment', 'Equipment');
     <input type="hidden" name="action" value="save">
     <input type="hidden" name="equipment_id" value="<?= (int) ($editing['equipment_id'] ?? 0) ?>">
 
-    <h2><?= $editing ? 'Edit instrument' : 'Add an instrument' ?></h2>
+    <h2><?= $editing ? 'Edit equipment' : 'Add equipment' ?></h2>
 
     <div class="field">
       <label for="name">Display name</label>
@@ -370,7 +379,7 @@ admin_header('equipment', 'Equipment');
       <label for="equip_class">Kind of thing</label>
       <select id="equip_class" name="equip_class">
         <?php foreach (picklist('equip_class') as $code => $label): ?>
-          <option value="<?= h($code) ?>" <?= ($editing['equip_class'] ?? 'instrument') === $code ? 'selected' : '' ?>><?= h($label) ?></option>
+          <option value="<?= h($code) ?>" <?= ($editing['equip_class'] ?? 'equipment') === $code ? 'selected' : '' ?>><?= h($label) ?></option>
         <?php endforeach; ?>
       </select>
     </div>
@@ -397,11 +406,11 @@ admin_header('equipment', 'Equipment');
         <p class="hint">Left blank on a rate change, this becomes today.</p>
       </div>
       <div class="field">
-        <label for="receiving_subaccount">Receiving account (CFOPA)</label>
+        <label for="receiving_subaccount">Receiving subaccount (CFOPA)</label>
         <input type="text" id="receiving_subaccount" name="receiving_subaccount" required
                placeholder="1-303631-375002-375150-A51"
                value="<?= h($editing['receiving_subaccount'] ?? '') ?>">
-        <p class="hint">The self-supporting account the revenue lands in. Give each instrument its
+        <p class="hint">The self-supporting account the revenue lands in. Give each equipment its
         own activity segment on a shared fund, the way the field stations are billed.
         <?php if (!empty($editing['receiving_subaccount']) && !cfopa_is_well_formed($editing['receiving_subaccount'])): ?>
           <br><span class="grant-hint-warn">This is not the usual CFOPA shape; check it before the next export.</span>
@@ -421,7 +430,7 @@ admin_header('equipment', 'Equipment');
     </div>
 
     <div class="form-actions">
-      <button type="submit" class="button"><?= $editing ? 'Save changes' : 'Add instrument' ?></button>
+      <button type="submit" class="button"><?= $editing ? 'Save changes' : 'Add equipment' ?></button>
       <?php if ($editing): ?><a class="link-quiet" href="equipment.php">Cancel</a><?php endif; ?>
     </div>
   </form>
@@ -432,9 +441,9 @@ admin_header('equipment', 'Equipment');
     <input type="hidden" name="action" value="status">
     <input type="hidden" name="equipment_id" value="<?= (int) $editing['equipment_id'] ?>">
 
-    <h2 class="card-heading">Service and downtime</h2>
-    <p class="hint">An instrument that is down keeps its rate, its account, and its whole
-    charge history. It simply stops accepting new bookings and new charges until it
+    <h2 class="card-heading">Service and Downtime</h2>
+    <p class="hint">Equipment that is down keeps its rate, its account, and its whole
+    charge history. It simply stops accepting new reservations and new charges until it
     is back. Marking one down opens a message to the equipment person.</p>
 
     <div class="field-row">
@@ -461,7 +470,7 @@ admin_header('equipment', 'Equipment');
       <label for="status_note">What is wrong, or what service is due</label>
       <textarea id="status_note" name="status_note"
                 placeholder="Shown to anyone who tries to book or charge it."><?= h($editing['status_note'] ?? '') ?></textarea>
-      <p class="hint">Required when marking an instrument down.</p>
+      <p class="hint">Required when marking equipment down.</p>
     </div>
 
     <?php if (!empty($editing['status_since']) && ($editing['status'] ?? '') !== 'available'): ?>
@@ -470,7 +479,7 @@ admin_header('equipment', 'Equipment');
     <?php endif; ?>
 
     <div class="form-actions">
-      <button type="submit" class="button">Save status</button>
+      <button type="submit" class="button">Save Status</button>
     </div>
   </form>
 <?php endif; ?>

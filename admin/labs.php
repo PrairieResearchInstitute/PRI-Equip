@@ -2,7 +2,7 @@
 /**
  * admin/labs.php — Laboratories, and who works in each.
  *
- * A laboratory owns its instruments, grants, bookings, charges and costs.
+ * A laboratory owns its equipment, grants, reservations, charges and costs.
  * Adding one here gives another group of scientists their own set of all of it,
  * in the same installation, without either laboratory seeing the other's.
  *
@@ -79,8 +79,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                              :active, :created_at)',
                     $data
                 );
-                $labId = (int) db()->lastInsertId();
-                flash($data['name'] . ' created. Add its people, then its instruments and grants.');
+                $labId = (int) db_last_id();
+                flash($data['name'] . ' created. Add its people, then its equipment and grants.');
             }
             redirect('labs.php?edit=' . $labId);
         }
@@ -93,7 +93,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $name = trim((string) ($_POST['display_name'] ?? ''));
 
         if ($key === '') {
-            flash('Give the name the person types when they use the application.', 'error');
+            flash(identity_is_self_declared()
+                ? 'Give the name the person types when they use the application.'
+                : 'Give the person\'s NetID.', 'error');
+        } elseif (!identity_is_self_declared() && !role_valid_netid($key)) {
+            flash($key . ' is not a NetID. A whole campus group goes under Administration, Administrators, as a member grant for this laboratory.', 'error');
         } elseif (!lab_by_id($labId)) {
             flash('That laboratory no longer exists.', 'error');
         } elseif (db_one('SELECT 1 FROM lab_members WHERE lab_id = ? AND person_key = ?', [$labId, $key])) {
@@ -109,6 +113,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($action === 'remove_member') {
+        if (needs_confirmation()) {
+            confirm_page('Remove Member',
+                         'Remove ' . (string) ($_POST['person_key'] ?? 'this person')
+                             . ' from this laboratory? Their entries and reservations stay.',
+                         'Remove', $_POST, 'labs.php?edit=' . (int) ($_POST['lab_id'] ?? 0), true);
+        }
         $memberId = (int) ($_POST['member_id'] ?? 0);
         $member   = db_one('SELECT * FROM lab_members WHERE member_id = ?', [$memberId]);
         if ($member) {
@@ -125,7 +135,7 @@ if ($editing === null && isset($_GET['edit'])) {
 
 $all = db_all(
     'SELECT l.*,
-            (SELECT COUNT(*) FROM equipment e WHERE e.lab_id = l.lab_id AND e.active = 1) AS instruments,
+            (SELECT COUNT(*) FROM equipment e WHERE e.lab_id = l.lab_id AND e.active = 1) AS equipment,
             (SELECT COUNT(*) FROM grants g WHERE g.lab_id = l.lab_id AND g.active = 1) AS grants_count,
             (SELECT COUNT(*) FROM lab_members m WHERE m.lab_id = l.lab_id) AS people,
             (SELECT COUNT(*) FROM usage_records r
@@ -143,7 +153,7 @@ $members = $editing && !empty($editing['lab_id'])
 admin_header('labs', 'Laboratories');
 ?>
 <h1>Laboratories</h1>
-<p class="lede">Each laboratory keeps its own instruments, grants, bookings, charges and costs.
+<p class="lede">Each laboratory keeps its own equipment, grants, reservations, charges and costs.
 Nothing is shared between them except the survey unit list and these administrator accounts.</p>
 
 <?php foreach ($errors as $error): ?>
@@ -158,7 +168,7 @@ Nothing is shared between them except the survey unit list and these administrat
     <table class="data">
       <thead>
         <tr><th>Laboratory</th><th>Code</th><th>Unit</th><th class="num">People</th>
-            <th class="num">Instruments</th><th class="num">Grants</th><th class="num">Charges</th></tr>
+            <th class="num">Equipment</th><th class="num">Grants</th><th class="num">Charges</th></tr>
       </thead>
       <tbody>
       <?php if (!$all): ?>
@@ -174,7 +184,7 @@ Nothing is shared between them except the survey unit list and these administrat
           <td><code><?= h($row['code']) ?></code></td>
           <td><?= h((string) db_value('SELECT code FROM units WHERE unit_id = ?', [$row['unit_id']])) ?></td>
           <td class="num"><?= (int) $row['people'] ?></td>
-          <td class="num"><?= (int) $row['instruments'] ?></td>
+          <td class="num"><?= (int) $row['equipment'] ?></td>
           <td class="num"><?= (int) $row['grants_count'] ?></td>
           <td class="num"><?= (int) $row['charges'] ?></td>
         </tr>
@@ -189,12 +199,17 @@ Nothing is shared between them except the survey unit list and these administrat
     'open' => true,
     'meta' => count($members) . ' assigned',
 ]); ?>
+<?php if (identity_is_self_declared()): ?>
   <p class="hint">A person types their last name when they open the application, and that is what
   goes here. Once the web server can pass a NetID through, these become NetIDs and nothing else changes.</p>
+<?php else: ?>
+  <p class="hint">The campus login says who a person is, so each entry here is a NetID. A whole campus
+  group can join this laboratory as a member grant under Administration, Administrators.</p>
+<?php endif; ?>
 
   <div class="table-wrap">
     <table class="data">
-      <thead><tr><th>Types</th><th>Name</th><th>Added</th><th></th></tr></thead>
+      <thead><tr><th><?= identity_is_self_declared() ? 'Types' : 'NetID' ?></th><th>Name</th><th>Added</th><th></th></tr></thead>
       <tbody>
       <?php if (!$members): ?>
         <tr><td colspan="4" class="empty">Nobody yet. Until somebody is added, only administrators can see this laboratory.</td></tr>
@@ -205,12 +220,15 @@ Nothing is shared between them except the survey unit list and these administrat
           <td><?= h($member['display_name']) ?></td>
           <td class="nowrap"><?= h(pretty_date($member['created_at'])) ?></td>
           <td class="nowrap">
-            <form method="post" onsubmit="return confirm('Remove <?= h($member['person_key']) ?> from this laboratory? Their entries and bookings stay.');">
+            <form method="post"
+                  data-confirm="Remove <?= h($member['person_key']) ?> from this laboratory? Their entries and reservations stay."
+                  data-confirm-ok="Remove" data-confirm-danger>
+              <input type="hidden" name="person_key" value="<?= h($member['person_key']) ?>">
               <?= csrf_field() ?>
               <input type="hidden" name="action" value="remove_member">
               <input type="hidden" name="member_id" value="<?= (int) $member['member_id'] ?>">
               <input type="hidden" name="lab_id" value="<?= (int) $editing['lab_id'] ?>">
-              <button type="submit" class="button button-secondary button-small">Remove</button>
+              <button type="submit" class="button button-danger button-small">Remove</button>
             </form>
           </td>
         </tr>
@@ -225,8 +243,8 @@ Nothing is shared between them except the survey unit list and these administrat
     <input type="hidden" name="lab_id" value="<?= (int) $editing['lab_id'] ?>">
     <div class="field-row">
       <div class="field">
-        <label for="person_key">Name they type</label>
-        <input type="text" id="person_key" name="person_key" required placeholder="Ruiz">
+        <label for="person_key"><?= identity_is_self_declared() ? 'Name they type' : 'NetID' ?></label>
+        <input type="text" id="person_key" name="person_key" required placeholder="<?= identity_is_self_declared() ? 'Ruiz' : 'eruiz2' ?>">
         <p class="hint">Case does not matter.</p>
       </div>
       <div class="field">
@@ -235,7 +253,7 @@ Nothing is shared between them except the survey unit list and these administrat
       </div>
     </div>
     <div class="form-actions">
-      <button type="submit" class="button">Add to laboratory</button>
+      <button type="submit" class="button">Add to Laboratory</button>
     </div>
   </form>
 <?php accordion_close(); ?>
@@ -260,7 +278,7 @@ Nothing is shared between them except the survey unit list and these administrat
           <option value="">&mdash;</option>
           <?php foreach ($units as $unit): ?>
             <option value="<?= (int) $unit['unit_id'] ?>" <?= (int) ($editing['unit_id'] ?? 0) === (int) $unit['unit_id'] ? 'selected' : '' ?>>
-              <?= h($unit['code']) ?><?= $unit['name'] ? ' — ' . h($unit['name']) : '' ?>
+              <?= h($unit['code']) ?><?= $unit['name'] ? ' · ' . h($unit['name']) : '' ?>
             </option>
           <?php endforeach; ?>
         </select>
@@ -280,7 +298,7 @@ Nothing is shared between them except the survey unit list and these administrat
 
     <fieldset>
       <legend>Who this laboratory tells</legend>
-      <p class="hint">Each laboratory has its own. An instrument going out of service opens a message
+      <p class="hint">Each laboratory has its own. Equipment going out of service opens a message
       to the group; retiring one opens a message to the equipment person.</p>
 
       <div class="field-row">

@@ -1,5 +1,5 @@
 /* ==========================================================================
-   Shared Laboratory Equipment System — the whole appearance of the application.
+   PRI Shared Equipment: the whole appearance of the application.
 
    Every colour, size, and spacing decision lives in this file. No PHP file
    contains a style attribute except where JavaScript positions a calendar
@@ -12,49 +12,93 @@
   /* The palette PRI Facilities uses, under its own names, so a web person
      maintaining both systems meets the same tokens in both stylesheets. */
   --ink:               #1a1a1a;
-  --paper:             #f5f4f1;
+  --paper:             #f4f6f8;  /* cool set, Q-22 */
   --panel:             #ffffff;
-  --line:              #d8d5cf;
+  --line:              #e3e3e2;
   --accent:            #13294b;  /* Illinois blue */
-  --accent2:           #e84a27;  /* Illinois orange */
+  --accent2:           #FF5F05;  /* Illinois orange (Q-26) */
+  --il-altgeld:        #C84113;  /* Altgeld: the orange that carries white text */
   --good:              #1b6b2f;
   --bad:               #a4210c;
 
   /* Names used through the rest of this file, mapped onto the house palette. */
   --color-bg:          var(--paper);
   --color-surface:     var(--panel);
+  --color-surface-alt: #f4f6f8;
   --color-ink:         var(--ink);
   --color-ink-soft:    #5b5750;
   --color-line:        var(--line);
-  --color-line-soft:   #e8e5df;
+  --color-line-soft:   #e3e6ea;
 
-  --color-accent:      var(--accent);
-  --color-accent-soft: #e7eaf1;
-  --color-orange:      var(--accent2);
+  --color-accent:        var(--accent);
+  --color-accent-strong: #0d1d36;
+  --color-accent-soft:   #e7eaf1;
+  --color-orange:        var(--accent2);
+  --on-accent:           #ffffff;
 
-  --color-ok:          var(--good);
-  --color-ok-bg:       #e8f2ea;
-  --color-warn:        #7a5600;
-  --color-warn-bg:     #f8f1de;
-  --color-error:       var(--bad);
-  --color-error-bg:    #f8e9e6;
+  --color-ok:           var(--good);
+  --color-ok-bg:        #e8f2ea;
+  --color-ok-line:      #9dd3b2;
+  --color-ok-ink:       #12351f;
+  --color-warn:         #7a5600;
+  --color-warn-bg:      #f8f1de;
+  --color-warn-line:    #e6cf8b;
+  --color-warn-ink:     #4a3a05;
+  --color-error:        var(--bad);
+  --color-error-strong: #8f1d17;
+  --color-error-bg:     #f8e9e6;
+  --color-error-line:   #efab9f;
+  --color-error-ink:    #6d1811;
 
   --radius:            6px;
   --radius-sm:         4px;
+  --radius-pill:       999px;
   --shadow:            0 1px 2px rgba(16, 24, 40, .06), 0 1px 3px rgba(16, 24, 40, .1);
+  --shadow-overlay:    0 12px 40px rgba(16, 24, 40, .28);
 
-  /* Georgia, as PRI Facilities sets it. Data-dense screens keep the sans. */
-  --font: Georgia, "Times New Roman", "Liberation Serif", serif;
-  --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  /* Space scale. 1rem and 1.25rem carry most panels. */
+  --space-1: .25rem;
+  --space-2: .5rem;
+  --space-3: .75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-7: 2rem;
+
+  /* Type scale. The 2rem charge total on the use entry form sits outside it. */
+  --fs-xs:   .72rem;   /* uppercase labels, pills, table heads */
+  --fs-sm:   .82rem;   /* labels, small buttons, legends */
+  --fs-hint: .85rem;   /* hints, crumbs, quiet links */
+  --fs-md:   .9rem;    /* tables, small body, alerts */
+  --fs-h3:   1rem;
+  --fs-lg:   1.15rem;
+  --fs-xl:   1.5rem;
+
+  /* The campus faces (Q-20). "source-sans-pro" is the name the Illinois kit
+     at use.typekit.net serves, which every page already loads; "Source Sans
+     3" and "Source Sans Pro" catch a self-hosted or locally installed copy,
+     and the system sans catches a machine with neither. The toolkit header
+     and footer use the same family, so the chrome and the application below
+     it are now one typeface instead of two. */
+  --font: "source-sans-pro", "Source Sans 3", "Source Sans Pro", system-ui,
+          -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-ui: var(--font);
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", monospace;
+
+  /* One focus ring for every control. */
+  --focus: 2px solid var(--color-accent);
+
+  --z-tip:    40;
+  --z-dialog: 50;
+  --dur-fast: .12s;
 
   /* Calendar */
   --cal-gutter:        52px;
-  --cal-free:          #faf9f7;
-  --cal-free-alt:      #f2f0ec;   /* weekend columns */
-  --cal-booked:        #7b8ca6;
+  --cal-free:          #f4f6f8;
+  --cal-free-alt:      #e9edf2;   /* weekend columns, one step down the cool set */
+  --cal-booked:        #5d6f8c;   /* white text measures 4.9 to 1 (PCE-19) */
   --cal-booked-ink:    #ffffff;
-  --cal-mine:          var(--accent2);
+  --cal-mine:          var(--il-altgeld);  /* white text, so Altgeld (Q-26) */
   --cal-mine-ink:      #ffffff;
   --cal-ghost:         rgba(19, 41, 75, .35);
 }
@@ -72,24 +116,43 @@ body {
   background: var(--color-bg);
 }
 
-/* Prose and headings take the house serif. The dense parts — the tables of
-   charges, the entry form, and the calendar, where the type gets small and
-   numbers have to line up — stay on the interface sans. */
+/* Prose and headings take the house serif. The dense parts stay on the
+   interface sans: the tables of charges, the entry form, and the calendar,
+   where the type gets small and numbers have to line up. */
 table.data, .cal-grid, .cal-toolbar, .cal-hintbar, .cal-actionbar, .cal-tip,
 input, select, textarea, button, .pill, .crumbs, .hint {
   font-family: var(--font-ui);
 }
 
-h1, h2, h3 { line-height: 1.25; margin: 0 0 .5rem; font-weight: 600; }
-h1 { font-size: 1.5rem; }
-h2 { font-size: 1.15rem; margin-top: 2rem; }
-h3 { font-size: 1rem; }
+h1, h2, h3 { line-height: 1.25; margin: 0 0 var(--space-2); font-weight: 600; }
+h1 { font-size: var(--fs-xl); }
+h2 { font-size: var(--fs-lg); margin-top: var(--space-7); }
+h3 { font-size: var(--fs-h3); }
 
 p { margin: 0 0 1rem; }
 p:last-child { margin-bottom: 0; }
 
 a { color: var(--color-accent); }
-a:hover { color: var(--color-orange); }
+/* Altgeld, not the bright orange: this is orange text on a light ground,
+   where #FF5F05 falls under the contrast floor (Q-26, PCE-37). */
+a:hover { color: var(--il-altgeld); }
+
+/* One focus ring for every control that takes the keyboard. Inputs keep the
+   inset form of it, set with the input rule below (PCE-30). */
+a:focus-visible,
+button:focus-visible,
+summary:focus-visible,
+[tabindex]:focus-visible,
+.button:focus-visible,
+.cal-cell:focus-visible,
+.cal-block:focus-visible {
+  outline: var(--focus);
+  outline-offset: 2px;
+}
+/* Inside the navy charge bar the navy ring would disappear. */
+.charge-bar a:focus-visible,
+.charge-bar button:focus-visible,
+.charge-bar .button:focus-visible { outline-color: var(--accent2); }
 
 code {
   font-family: var(--font-mono);
@@ -99,8 +162,8 @@ code {
   border-radius: var(--radius-sm);
 }
 
-.lede { color: var(--color-ink-soft); font-size: 1.02rem; }
-.hint { color: var(--color-ink-soft); font-size: .85rem; margin: .3rem 0 0; }
+.lede { color: var(--color-ink-soft); font-size: var(--fs-h3); }
+.hint { color: var(--color-ink-soft); font-size: var(--fs-hint); margin: .3rem 0 0; }
 .muted { color: var(--color-ink-soft); }
 .nowrap { white-space: nowrap; }
 .right { text-align: right; }
@@ -121,13 +184,34 @@ ilw-header ilw-header-menu ul {
   display: flex;
   flex-wrap: wrap;
 }
+/* The house spelling of the active state is .is-current (PCE-38). The menu
+   leaves the page in view out of the list rather than marking it, so this
+   only fires if the toolkit marks an item itself, under its own spelling. */
+ilw-header ilw-header-menu li.is-current > a,
 ilw-header ilw-header-menu li.current > a { font-weight: 700; }
 
 ilw-header nav.il-links ul { list-style: none; margin: 0; padding: 0; }
 ilw-header nav.il-links li { display: inline-block; margin-left: 1rem; }
 
+/* The authorship credit below the toolkit footer (drez-ui-elements rule 27):
+   quiet hint text, centred, on the page ground. */
+.app-credit {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  text-align: center;
+  font-size: var(--fs-hint);
+  color: var(--color-ink-soft);
+}
+
+/* One width for the page and for everything that has to line up with it:
+   the breadcrumbs and the laboratory bar sit outside <main>, so the measure
+   lives on <body> where all three can read it (PCE-24). */
+body { --page-width: 1180px; }
+body.width-narrow { --page-width: 640px; }
+body.width-wide   { --page-width: 1400px; }
+
 main.page {
-  max-width: 1180px;
+  max-width: var(--page-width);
   margin: 0 auto;
   padding: 1.75rem 1.25rem 3rem;
 }
@@ -147,10 +231,10 @@ main.page.wide   { max-width: 1400px; }
 /* Breadcrumbs. The way back out of a screen, which the tab strip used to
    pretend to be while actually repeating the overview's own cards. */
 .crumbs {
-  max-width: 1180px;
+  max-width: var(--page-width);
   margin: 0 auto;
   padding: .9rem 1.25rem 0;
-  font-size: .85rem;
+  font-size: var(--fs-hint);
 }
 .crumbs ol { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: .35rem; }
 .crumbs li + li::before { content: "›"; margin-right: .35rem; color: var(--color-ink-soft); }
@@ -206,7 +290,7 @@ main.page.wide   { max-width: 1400px; }
 .accordion > summary:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
 
 .accordion-title { font-weight: 600; flex: 1 1 auto; }
-.accordion-meta  { color: var(--color-ink-soft); font-size: .82rem; }
+.accordion-meta  { color: var(--color-ink-soft); font-size: var(--fs-sm); }
 
 .accordion-body { padding: 0 1.25rem 1.25rem; }
 .accordion-body > .card { box-shadow: none; }
@@ -218,14 +302,14 @@ main.page.wide   { max-width: 1400px; }
 
 /* --- The message log ------------------------------------------------------ */
 
-.email-head { margin: 0 0 1rem; font-family: var(--font-ui); font-size: .875rem; }
+.email-head { margin: 0 0 1rem; font-family: var(--font-ui); font-size: var(--fs-hint); }
 .email-head > div { display: flex; gap: .6rem; padding: .12rem 0; }
 .email-head dt { flex: 0 0 7rem; color: var(--color-ink-soft); }
 .email-head dd { margin: 0; }
 
 .email-body {
   font-family: var(--font-mono);
-  font-size: .8rem;
+  font-size: var(--fs-sm);
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
@@ -261,7 +345,7 @@ main.page.wide   { max-width: 1400px; }
 .grid-cards a.card { text-decoration: none; color: inherit; display: block; }
 .grid-cards a.card:hover { border-color: var(--color-accent); }
 .grid-cards .card h3 { margin-bottom: .25rem; }
-.grid-cards .card p { color: var(--color-ink-soft); font-size: .875rem; margin: 0; }
+.grid-cards .card p { color: var(--color-ink-soft); font-size: var(--fs-hint); margin: 0; }
 
 /* --- Forms --------------------------------------------------------------- */
 
@@ -270,7 +354,7 @@ main.page.wide   { max-width: 1400px; }
 
 label {
   display: block;
-  font-size: .82rem;
+  font-size: var(--fs-sm);
   font-weight: 600;
   letter-spacing: .01em;
   color: var(--color-ink);
@@ -278,20 +362,26 @@ label {
 }
 
 input[type=text], input[type=password], input[type=number], input[type=date],
-input[type=time], input[type=email], input[type=search], select, textarea {
+input[type=time], input[type=datetime-local], input[type=email], input[type=search],
+select, textarea {
   width: 100%;
   font: inherit;
   color: inherit;
-  padding: .5rem .6rem;
+  padding: var(--space-2) .6rem;
   border: 1px solid var(--color-line);
   border-radius: var(--radius-sm);
-  background: #fff;
+  background: var(--color-surface);
 }
+/* Inputs keep the inset ring because they sit in tight rows. */
 input:focus, select:focus, textarea:focus {
-  outline: 2px solid var(--color-accent);
+  outline: var(--focus);
   outline-offset: -1px;
   border-color: var(--color-accent);
 }
+
+/* A field the server rejected. The message itself is a p.hint beneath it. */
+.field-error input, .field-error select, .field-error textarea { border-color: var(--color-error); }
+.field-error .hint { color: var(--color-error); }
 input[readonly], input:disabled, select:disabled, textarea[readonly] {
   background: var(--color-line-soft);
   color: var(--color-ink-soft);
@@ -308,7 +398,7 @@ select { appearance: auto; }
 .field-row-3 { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
 
 .checkline { display: flex; align-items: center; gap: .5rem; }
-.checkline label { margin: 0; font-weight: 400; font-size: .9rem; }
+.checkline label { margin: 0; font-weight: 400; font-size: var(--fs-md); }
 .checkline input[type=checkbox] { width: auto; }
 
 .form-actions {
@@ -322,38 +412,58 @@ select { appearance: auto; }
 }
 
 fieldset { border: 1px solid var(--color-line); border-radius: var(--radius); padding: 1rem; margin: 0 0 1rem; }
-legend { font-size: .82rem; font-weight: 600; padding: 0 .35rem; }
+legend { font-size: var(--fs-sm); font-weight: 600; padding: 0 .35rem; }
 
 /* --- Buttons ------------------------------------------------------------- */
 
+/* Every variant is written as .button.button-x so that it outranks the base
+   rule. Written as .button-x alone, "button.button" and "a.button" won on
+   specificity and every secondary, danger and small button rendered as a
+   solid navy primary (PCE-01). */
 .button, button.button, a.button {
   display: inline-block;
   font: inherit;
-  font-weight: 500;
+  font-weight: 600;
   line-height: 1.4;
-  padding: .5rem 1rem;
+  padding: var(--space-2) var(--space-4);
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-accent);
   background: var(--color-accent);
-  color: #fff;
+  color: var(--on-accent);
   text-decoration: none;
   cursor: pointer;
 }
-.button:hover { background: #0d1d36; border-color: #0d1d36; color: #fff; }
+.button:hover { background: var(--color-accent-strong); border-color: var(--color-accent-strong); color: var(--on-accent); }
 .button:disabled, .button[aria-disabled=true] { opacity: .5; cursor: not-allowed; }
+.button:disabled:hover, .button[aria-disabled=true]:hover {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
 
-.button-secondary {
-  background: #fff;
+.button.button-secondary {
+  background: var(--color-surface);
+  border-color: var(--color-accent);
   color: var(--color-accent);
 }
-.button-secondary:hover { background: var(--color-accent-soft); color: var(--color-accent); }
+.button.button-secondary:hover { background: var(--color-accent-soft); color: var(--color-accent); }
+.button.button-secondary:disabled:hover,
+.button.button-secondary[aria-disabled=true]:hover { background: var(--color-surface); }
 
-.button-danger { background: var(--color-error); border-color: var(--color-error); }
-.button-danger:hover { background: #8f1d17; border-color: #8f1d17; }
+.button.button-danger {
+  background: var(--color-error);
+  border-color: var(--color-error);
+  color: var(--on-accent);
+}
+.button.button-danger:hover { background: var(--color-error-strong); border-color: var(--color-error-strong); }
+.button.button-danger:disabled:hover,
+.button.button-danger[aria-disabled=true]:hover {
+  background: var(--color-error);
+  border-color: var(--color-error);
+}
 
-.button-small { padding: .28rem .6rem; font-size: .82rem; }
+.button.button-small { padding: .28rem var(--space-3); font-size: var(--fs-sm); }
 
-.link-quiet { color: var(--color-ink-soft); font-size: .85rem; }
+.link-quiet { color: var(--color-ink-soft); font-size: var(--fs-hint); }
 .link-danger { color: var(--color-error); }
 
 .button-row { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
@@ -365,11 +475,11 @@ legend { font-size: .82rem; font-weight: 600; padding: 0 .35rem; }
   border-radius: var(--radius);
   padding: .7rem 1rem;
   margin-bottom: 1rem;
-  font-size: .92rem;
+  font-size: var(--fs-md);
 }
-.flash-success { background: var(--color-ok-bg);    border-color: #9dd3b2; color: #12351f; }
-.flash-notice  { background: var(--color-warn-bg);  border-color: #e6cf8b; color: #4a3a05; }
-.flash-error   { background: var(--color-error-bg); border-color: #efab9f; color: #6d1811; }
+.flash-success { background: var(--color-ok-bg);    border-color: var(--color-ok-line);    color: var(--color-ok-ink); }
+.flash-notice  { background: var(--color-warn-bg);  border-color: var(--color-warn-line);  color: var(--color-warn-ink); }
+.flash-error   { background: var(--color-error-bg); border-color: var(--color-error-line); color: var(--color-error-ink); }
 
 /* --- Tables -------------------------------------------------------------- */
 
@@ -379,7 +489,7 @@ table.data {
   width: 100%;
   border-collapse: collapse;
   background: var(--color-surface);
-  font-size: .9rem;
+  font-size: var(--fs-md);
 }
 table.data th, table.data td {
   text-align: left;
@@ -388,31 +498,31 @@ table.data th, table.data td {
   vertical-align: top;
 }
 table.data thead th {
-  background: #f8f9fa;
-  font-size: .74rem;
+  background: var(--color-surface-alt);
+  font-size: var(--fs-xs);
   text-transform: uppercase;
   letter-spacing: .05em;
   color: var(--color-ink-soft);
   border-bottom: 1px solid var(--color-line);
   white-space: nowrap;
 }
-table.data tbody tr:hover { background: #fbfcfd; }
+table.data tbody tr:hover { background: var(--color-surface-alt); }
 table.data tbody tr:last-child td { border-bottom: 0; }
 table.data td.num, table.data th.num { text-align: right; font-variant-numeric: tabular-nums; }
 table.data tr.is-voided td { color: var(--color-ink-soft); text-decoration: line-through; }
 table.data tr.is-voided td.reason { text-decoration: none; }
-table.data tr.is-locked td { background: #fbfbfc; }
+table.data tr.is-locked td { background: var(--color-surface-alt); }
 
 .empty {
   padding: 1.5rem;
   text-align: center;
   color: var(--color-ink-soft);
-  font-size: .9rem;
+  font-size: var(--fs-md);
 }
 
 .pill {
   display: inline-block;
-  font-size: .72rem;
+  font-size: var(--fs-xs);
   font-weight: 600;
   letter-spacing: .03em;
   text-transform: uppercase;
@@ -437,9 +547,9 @@ table.data tr.is-locked td { background: #fbfbfc; }
 .charge-bar {
   margin-top: 1.5rem;
   background: var(--color-accent);
-  color: #fff;
+  color: var(--on-accent);
   border-radius: var(--radius);
-  padding: 1rem 1.25rem;
+  padding: var(--space-4) var(--space-5);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -448,7 +558,7 @@ table.data tr.is-locked td { background: #fbfbfc; }
 }
 .charge-bar-total { display: flex; align-items: baseline; gap: .75rem; flex-wrap: wrap; }
 .charge-bar-total .label {
-  font-size: .74rem;
+  font-size: var(--fs-xs);
   text-transform: uppercase;
   letter-spacing: .06em;
   color: rgba(255, 255, 255, .7);
@@ -460,17 +570,17 @@ table.data tr.is-locked td { background: #fbfbfc; }
   font-variant-numeric: tabular-nums;
   line-height: 1.1;
 }
-.charge-formula { color: rgba(255, 255, 255, .75); font-size: .85rem; }
+.charge-formula { color: rgba(255, 255, 255, .75); font-size: var(--fs-hint); }
 
 .charge-bar-meta { display: flex; gap: 1.75rem; margin: 0; flex-wrap: wrap; }
 .charge-bar-meta div { display: flex; flex-direction: column; gap: .1rem; }
 .charge-bar-meta dt {
-  font-size: .7rem;
+  font-size: var(--fs-xs);
   text-transform: uppercase;
   letter-spacing: .05em;
   color: rgba(255, 255, 255, .6);
 }
-.charge-bar-meta dd { margin: 0; font-size: .9rem; color: #fff; }
+.charge-bar-meta dd { margin: 0; font-size: var(--fs-md); color: var(--on-accent); }
 
 .readonly-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 0 1rem; }
 /* The alert list, ranked. The order carries the meaning, so the numbering is
@@ -484,8 +594,8 @@ table.data tr.is-locked td { background: #fbfbfc; }
   display: inline-block;
   background: var(--color-line-soft);
   color: var(--color-ink-soft);
-  border-radius: 999px;
-  font-size: .72rem;
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-xs);
   font-weight: 600;
   padding: .05rem .45rem;
   vertical-align: middle;
@@ -502,7 +612,7 @@ table.data tr.is-locked td { background: #fbfbfc; }
   padding: .5rem 0;
   border-bottom: 1px solid var(--color-line-soft);
 }
-.alert-list li::marker { color: var(--color-ink-soft); font-size: .8rem; font-weight: 700; }
+.alert-list li::marker { color: var(--color-ink-soft); font-size: var(--fs-sm); font-weight: 700; }
 .alert-list li:last-child { border-bottom: 0; }
 
 .alert-row {
@@ -514,7 +624,7 @@ table.data tr.is-locked td { background: #fbfbfc; }
 
 .alert-tag {
   flex: 0 0 auto;
-  font-size: .66rem;
+  font-size: var(--fs-xs);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: .05em;
@@ -529,9 +639,9 @@ table.data tr.is-locked td { background: #fbfbfc; }
 .alert-notice      .alert-tag { background: var(--color-accent-soft); color: var(--color-accent); }
 .alert-opportunity .alert-tag { background: var(--color-ok-bg);    color: var(--color-ok); }
 
-.alert-body { flex: 1 1 22rem; min-width: 0; font-size: .9rem; }
+.alert-body { flex: 1 1 22rem; min-width: 0; font-size: var(--fs-md); }
 .alert-body strong { display: block; font-weight: 600; }
-.alert-detail { display: block; color: var(--color-ink-soft); font-size: .85rem; margin-top: .1rem; }
+.alert-detail { display: block; color: var(--color-ink-soft); font-size: var(--fs-hint); margin-top: .1rem; }
 .alert-list .button { flex: 0 0 auto; }
 
 /* Cost recovery */
@@ -545,7 +655,7 @@ table.data tr.is-locked td { background: #fbfbfc; }
   gap: .75rem;
   padding: .3rem 0;
   border-bottom: 1px solid var(--color-line-soft);
-  font-size: .9rem;
+  font-size: var(--fs-md);
 }
 .cost-breakdown li:last-child { border-bottom: 0; }
 .cost-breakdown li > span:first-child { flex: 1 1 auto; }
@@ -567,7 +677,7 @@ table.data tr.is-locked td { background: #fbfbfc; }
 
 .field-spaced { margin-top: 1rem; }
 .card-heading { margin-top: 0; }
-.grant-hint-warn { color: var(--color-warn); font-weight: 500; }
+.grant-hint-warn { color: var(--color-warn); font-weight: 600; }
 
 /* --- Identity prompt ----------------------------------------------------- */
 
@@ -588,17 +698,18 @@ table.data tr.is-locked td { background: #fbfbfc; }
   background: var(--color-surface);
   border: 1px solid var(--color-line);
   border-radius: var(--radius);
-  padding: .9rem 1rem;
+  box-shadow: var(--shadow);
+  padding: .9rem var(--space-4);
 }
 .total-tile .label {
-  font-size: .72rem;
+  font-size: var(--fs-xs);
   text-transform: uppercase;
   letter-spacing: .05em;
   color: var(--color-ink-soft);
   font-weight: 600;
 }
-.total-tile .value { font-size: 1.5rem; font-weight: 600; font-variant-numeric: tabular-nums; }
-.total-tile .value.value-small { font-size: 1.05rem; line-height: 1.35; }
+.total-tile .value { font-size: var(--fs-xl); font-weight: 600; font-variant-numeric: tabular-nums; }
+.total-tile .value.value-small { font-size: var(--fs-h3); line-height: 1.35; }
 
 .cfopa-group { margin-bottom: 1.5rem; border: 1px solid var(--color-line); border-radius: var(--radius); overflow: hidden; background: var(--color-surface); }
 .cfopa-head {
@@ -612,20 +723,20 @@ table.data tr.is-locked td { background: #fbfbfc; }
   border-bottom: 1px solid var(--color-line);
 }
 .cfopa-head .cfopa-number { font-weight: 600; font-family: var(--font-mono); }
-.cfopa-head .cfopa-title { color: var(--color-ink-soft); font-size: .875rem; }
+.cfopa-head .cfopa-title { color: var(--color-ink-soft); font-size: var(--fs-hint); }
 .cfopa-head .cfopa-total { font-weight: 600; font-variant-numeric: tabular-nums; margin-left: auto; }
 
 .instrument-head td {
-  background: #f8f9fa;
+  background: var(--color-surface-alt);
   font-weight: 600;
-  font-size: .85rem;
+  font-size: var(--fs-hint);
 }
 tr.subtotal td {
-  background: #fbfcfd;
+  background: var(--color-surface-alt);
   font-weight: 600;
   border-top: 1px solid var(--color-line);
 }
-tr.grand td { font-size: 1rem; font-weight: 700; background: var(--color-accent-soft); }
+tr.grand td { font-size: var(--fs-h3); font-weight: 700; background: var(--color-accent-soft); }
 
 /* --- Calendar ------------------------------------------------------------ */
 
@@ -633,6 +744,8 @@ tr.grand td { font-size: 1rem; font-weight: 700; background: var(--color-accent-
    header, which calendar.js measures and writes to --cal-height. It is still
    the viewport that decides the row height, not a pixel count in this file;
    the page itself scrolls only to reach the footer, never to use the grid. */
+/* The calendar runs the full width, so the lab bar above it does too. */
+body.schedule-page { --page-width: none; }
 body.schedule-page main.schedule-main {
   display: flex;
   flex-direction: column;
@@ -653,11 +766,11 @@ body.schedule-page main.schedule-main {
 .cal-toolbar .week-label { font-weight: 600; }
 .cal-toolbar .spacer { margin-left: auto; }
 
-.cal-legend { display: flex; gap: .9rem; align-items: center; font-size: .8rem; color: var(--color-ink-soft); }
+.cal-legend { display: flex; gap: .9rem; align-items: center; font-size: var(--fs-sm); color: var(--color-ink-soft); }
 .cal-legend i {
   display: inline-block;
   width: .8rem; height: .8rem;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   vertical-align: -1px;
   margin-right: .3rem;
 }
@@ -708,35 +821,37 @@ body.schedule-page main.schedule-main {
 .r46 { grid-row-start: 46; } .r47 { grid-row-start: 47; } .r48 { grid-row-start: 48; }
 .r49 { grid-row-start: 49; }
 
-.cal-corner { border-bottom: 1px solid var(--color-line); border-right: 1px solid var(--color-line); background: #f8f9fa; }
+.cal-corner { border-bottom: 1px solid var(--color-line); border-right: 1px solid var(--color-line); background: var(--color-surface-alt); }
 
 .cal-dayname {
   border-bottom: 1px solid var(--color-line);
   border-right: 1px solid var(--color-line-soft);
-  background: #f8f9fa;
+  background: var(--color-surface-alt);
   text-align: center;
   padding: .3rem .25rem;
-  font-size: .78rem;
+  font-size: var(--fs-sm);
   font-weight: 600;
   color: var(--color-ink-soft);
   line-height: 1.25;
   white-space: nowrap;
   overflow: hidden;
 }
-.cal-dayname .dnum { display: block; font-size: .95rem; color: var(--color-ink); font-weight: 600; }
+.cal-dayname .dnum { display: block; font-size: var(--fs-md); color: var(--color-ink); font-weight: 600; }
 .cal-dayname.is-today { background: var(--color-accent-soft); }
-.cal-dayname.is-today .dnum { color: var(--color-orange); }
+/* Orange text on a light ground takes Altgeld; #FF5F05 is for rules, dots
+   and borders only, never for text or under white (Q-26, PCE-37). */
+.cal-dayname.is-today .dnum { color: var(--il-altgeld); }
 .cal-dayname:last-child { border-right: 0; }
 
 .cal-hour {
   grid-row-end: span 2;   /* a label covers its hour, not its first half hour */
   border-right: 1px solid var(--color-line);
   border-top: 1px solid var(--color-line-soft);
-  font-size: .68rem;
+  font-size: var(--fs-xs);
   color: var(--color-ink-soft);
   text-align: right;
   padding: 1px 4px 0 0;
-  background: #f8f9fa;
+  background: var(--color-surface-alt);
   line-height: 1;
   overflow: hidden;
   font-variant-numeric: tabular-nums;
@@ -761,7 +876,7 @@ body.schedule-page main.schedule-main {
   border-radius: 3px;
   background: var(--cal-booked);
   color: var(--cal-booked-ink);
-  font-size: .7rem;
+  font-size: var(--fs-xs);
   line-height: 1;
   overflow: hidden;
   cursor: grab;
@@ -786,12 +901,12 @@ body.schedule-page main.schedule-main {
 .cal-block-purpose { opacity: .85; font-style: italic; }
 
 /* Tall enough for everything. */
-.cal-block.label-full .cal-block-label    { font-size: .68rem; line-height: 1.25; }
+.cal-block.label-full .cal-block-label    { font-size: var(--fs-xs); line-height: 1.25; }
 /* An hour or so: who and when. */
-.cal-block.label-compact .cal-block-label { font-size: .66rem; line-height: 1.2; }
+.cal-block.label-compact .cal-block-label { font-size: var(--fs-xs); line-height: 1.2; }
 .cal-block.label-compact .cal-block-purpose { display: none; }
 /* A single half hour: the name only, and it has to sit on one line. */
-.cal-block.label-tiny .cal-block-label    { font-size: .62rem; line-height: 1; padding: 0 3px; }
+.cal-block.label-tiny .cal-block-label    { font-size: var(--fs-xs); line-height: 1; padding: 0 3px; }
 .cal-block.label-tiny .cal-block-when,
 .cal-block.label-tiny .cal-block-purpose  { display: none; }
 /* Shorter than a line of type. The tooltip is the only way in. */
@@ -818,18 +933,18 @@ body.schedule-page main.schedule-main {
 
 .cal-tip {
   position: fixed;
-  z-index: 40;
+  z-index: var(--z-tip);
   background: var(--color-ink);
-  color: #fff;
+  color: var(--on-accent);
   border-radius: var(--radius-sm);
   padding: .45rem .6rem;
-  font-size: .78rem;
+  font-size: var(--fs-sm);
   line-height: 1.35;
   max-width: 240px;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, .25);
+  box-shadow: var(--shadow-overlay);
   pointer-events: none;
 }
-.cal-tip strong { display: block; font-size: .82rem; }
+.cal-tip strong { display: block; font-size: var(--fs-sm); }
 .cal-tip .tip-time { color: rgba(255, 255, 255, .7); }
 
 .visually-hidden {
@@ -852,7 +967,7 @@ body.schedule-page main.schedule-main {
   border-radius: var(--radius);
   padding: .45rem .75rem;
   margin-bottom: .5rem;
-  font-size: .85rem;
+  font-size: var(--fs-hint);
 }
 .cal-actionbar .who { font-weight: 600; }
 .cal-actionbar .when { color: var(--color-ink-soft); }
@@ -860,7 +975,7 @@ body.schedule-page main.schedule-main {
 
 .cal-hintbar {
   flex: 0 0 auto;
-  font-size: .78rem;
+  font-size: var(--fs-sm);
   color: var(--color-ink-soft);
   display: flex;
   gap: 1.2rem;
@@ -876,8 +991,8 @@ body.schedule-page main.schedule-main {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 50;
-  padding: 1rem;
+  z-index: var(--z-dialog);
+  padding: var(--space-4);
 }
 .modal {
   background: var(--color-surface);
@@ -885,19 +1000,34 @@ body.schedule-page main.schedule-main {
   padding: 1.25rem;
   width: 100%;
   max-width: 420px;
-  box-shadow: 0 12px 40px rgba(16, 24, 40, .28);
+  box-shadow: var(--shadow-overlay);
   max-height: 90vh;
   overflow: auto;
 }
-.modal h2 { margin-top: 0; font-size: 1.05rem; }
-.modal .modal-when { color: var(--color-ink-soft); font-size: .88rem; margin-bottom: 1rem; }
+.modal h2 { margin-top: 0; font-size: var(--fs-h3); }
+/* Title row: the title on the left, the close control on the right. */
+.modal-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-4); }
+.modal-head h2 { margin-bottom: var(--space-3); }
+.modal-close {
+  border: 0;
+  background: none;
+  cursor: pointer;
+  color: var(--color-ink-soft);
+  font-size: var(--fs-lg);
+  line-height: 1;
+  padding: 0 var(--space-1);
+}
+.modal-close:hover { color: var(--color-ink); }
+/* Cancel sits left, the one primary action right. */
+.modal .form-actions { display: flex; justify-content: space-between; gap: var(--space-2); margin-top: var(--space-5); }
+.modal .modal-when { color: var(--color-ink-soft); font-size: var(--fs-hint); margin-bottom: 1rem; }
 .modal .weekday-picker { display: flex; gap: .35rem; flex-wrap: wrap; }
 .modal .weekday-picker label {
   border: 1px solid var(--color-line);
   border-radius: var(--radius-sm);
   padding: .3rem .5rem;
   font-weight: 400;
-  font-size: .82rem;
+  font-size: var(--fs-sm);
   cursor: pointer;
   margin: 0;
   display: flex;
@@ -918,11 +1048,24 @@ body.schedule-page main.schedule-main {
 
 /* --- Print --------------------------------------------------------------- */
 
+/* --- Phone width ---------------------------------------------------------
+   The one small breakpoint. Pairs that are fixed at two columns, and the two
+   selects with a minimum width wider than a phone, stack rather than push the
+   page sideways (PCE-31). Everything else is already auto-fit or flex-wrap. */
+@media (max-width: 36rem) {
+  .readonly-pair { grid-template-columns: 1fr; }
+  .cal-toolbar select,
+  .lab-picker select { min-width: 0; width: 100%; }
+  .charge-bar { flex-direction: column; align-items: flex-start; gap: var(--space-3); }
+  .page-head { flex-direction: column; }
+  main.page { padding-left: var(--space-4); padding-right: var(--space-4); }
+}
+
 @media print {
   ilw-header, ilw-footer, .crumbs, .report-filters, .button, .no-print { display: none !important; }
-  body { background: #fff; }
+  body { background: var(--color-surface); }
   main.page { max-width: none; padding: 0; }
-  .card, .cfopa-group { box-shadow: none; border-color: #ccc; page-break-inside: avoid; }
+  .card, .cfopa-group { box-shadow: none; border-color: var(--color-line); page-break-inside: avoid; }
 }
 
 /* --- The laboratory bar ---------------------------------------------------
@@ -937,7 +1080,7 @@ body.schedule-page main.schedule-main {
   font-family: var(--font-ui);
 }
 .lab-bar-inner {
-  max-width: 1180px;
+  max-width: var(--page-width);
   margin: 0 auto;
   padding: .7rem 1.25rem;
   display: flex;
@@ -950,16 +1093,16 @@ body.schedule-page main.schedule-main {
 .lab-picker { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin: 0; }
 .lab-picker label {
   margin: 0;
-  font-size: .8rem;
+  font-size: var(--fs-sm);
   text-transform: uppercase;
   letter-spacing: .05em;
   color: var(--color-ink-soft);
 }
-.lab-picker select { width: auto; min-width: 16rem; padding: .35rem .6rem; font-size: 1.05rem; font-weight: 600; }
+.lab-picker select { width: auto; min-width: 16rem; padding: .35rem .6rem; font-size: var(--fs-h3); font-weight: 600; }
 
-.lab-single { font-size: 1.25rem; font-weight: 700; }
+.lab-single { font-size: var(--fs-lg); font-weight: 700; }
 .lab-label {
-  font-size: .8rem;
+  font-size: var(--fs-sm);
   text-transform: uppercase;
   letter-spacing: .05em;
   color: var(--color-ink-soft);
@@ -982,15 +1125,15 @@ body.schedule-page main.schedule-main {
   text-decoration: none;
   color: inherit;
 }
-.lab-cards .lab-card h3 { margin: 0; font-size: 1.1rem; }
+.lab-cards .lab-card h3 { margin: 0; font-size: var(--fs-lg); }
 .lab-cards .lab-card .hint { margin: 0; }
 .lab-card.is-current { border-color: var(--color-accent); border-left: 4px solid var(--color-accent); }
-.lab-card-counts { font-size: .85rem; color: var(--color-ink-soft); margin: .2rem 0 .5rem; }
+.lab-card-counts { font-size: var(--fs-hint); color: var(--color-ink-soft); margin: .2rem 0 .5rem; }
 .lab-card button { align-self: flex-start; margin-top: auto; }
 .lab-card-new { border-style: dashed; }
 .lab-card-new:hover { border-color: var(--color-accent); }
 
-.lab-dashboard-link { margin-left: auto; font-size: .9rem; font-weight: 600; }
+.lab-dashboard-link { margin-left: auto; font-size: var(--fs-md); font-weight: 600; }
 .lab-card-shut { opacity: .72; }
 .lab-card-shut h3 { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
 
@@ -1008,49 +1151,52 @@ body.schedule-page main.schedule-main {
   .studio { grid-template-columns: 1fr; }
 }
 .studio-rail {
-  background: #fff;
-  border: 1px solid var(--rule, #d7d3cc);
-  border-radius: 4px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
   padding: .6rem .4rem;
   max-height: 34rem;
   overflow: auto;
 }
 .studio-dir {
   margin: .5rem .4rem .2rem;
-  font: 600 .72rem/1.2 system-ui, sans-serif;
+  font: 600 var(--fs-xs)/1.2 var(--font-ui);
   letter-spacing: .06em;
   text-transform: uppercase;
-  color: var(--muted, #6b6459);
+  color: var(--color-ink-soft);
 }
 .studio-files { list-style: none; margin: 0 0 .4rem; padding: 0; }
 .studio-files li a {
   display: block;
   padding: .18rem .45rem;
-  border-radius: 3px;
-  font: .84rem/1.35 ui-monospace, Consolas, monospace;
+  border-radius: var(--radius-sm);
+  font: var(--fs-sm)/1.35 var(--font-mono);
   text-decoration: none;
-  color: var(--ink, #1a1a1a);
+  color: var(--color-ink);
 }
-.studio-files li a:hover { background: #eef3f8; }
-.studio-files li.on a { background: var(--accent, #13294b); color: #fff; }
+.studio-files li a:hover { background: var(--color-accent-soft); }
+/* .on is the old spelling of the active state; it stays as an alias until
+   nothing writes it (PCE-38). */
+.studio-files li.is-current a,
+.studio-files li.on a { background: var(--color-accent); color: var(--on-accent); }
 .studio-head {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
   gap: 1rem;
-  padding: .1rem .1rem .5rem;
-  font: .95rem/1.3 system-ui, sans-serif;
+  padding: .1rem .1rem var(--space-2);
+  font: var(--fs-md)/1.3 var(--font-ui);
 }
 .studio-code {
   width: 100%;
   min-height: 26rem;
-  font: .82rem/1.5 ui-monospace, Consolas, "Courier New", monospace;
+  font: var(--fs-sm)/1.5 var(--font-mono);
   tab-size: 4;
   white-space: pre;
   overflow: auto;
-  border: 1px solid var(--rule, #d7d3cc);
-  border-radius: 3px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
   padding: .6rem .7rem;
-  background: #fbfbfa;
-  color: #1a1a1a;
+  background: var(--color-surface-alt);
+  color: var(--color-ink);
 }

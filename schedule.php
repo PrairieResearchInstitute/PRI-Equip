@@ -1,14 +1,14 @@
 <?php
 /**
- * schedule.php — The instrument calendar.
+ * schedule.php — The equipment calendar.
  *
- * One instrument at a time, seven day columns, forty-eight half-hour rows
+ * One piece of equipment at a time, seven day columns, forty-eight half-hour rows
  * covering the full twenty-four hours, and the whole grid inside the viewport
  * with nothing to scroll. Row height comes from the available height through
  * CSS grid, not from a pixel count, and the cells carry no text.
  *
  * The skeleton is rendered here so the week is legible before any script runs.
- * calendar.js fills in the bookings and handles dragging.
+ * calendar.js fills in the reservations and handles dragging.
  */
 
 declare(strict_types=1);
@@ -17,7 +17,7 @@ require_once __DIR__ . '/includes/functions.php';
 require_installed();
 
 if (identity_is_self_declared() && !have_user_name()) {
-    flash('Enter your last name first, so bookings carry a holder.', 'notice');
+    flash('Enter your last name first, so reservations carry a holder.', 'notice');
     redirect('index.php?next=' . rawurlencode(current_page_href()));
 }
 
@@ -36,12 +36,13 @@ page_header('Calendar', [
     'mainClass' => 'schedule-main',
 ]);
 ?>
+<h1 class="visually-hidden">Calendar</h1>
 <div class="cal-toolbar">
-  <label class="visually-hidden" for="equipmentPicker">Instrument</label>
+  <label class="visually-hidden" for="equipmentPicker">Equipment</label>
   <select id="equipmentPicker">
     <?php foreach ($equipment as $item): ?>
       <option value="<?= (int) $item['equipment_id'] ?>" <?= $selectedId === (int) $item['equipment_id'] ? 'selected' : '' ?>>
-        <?= h($item['name']) ?><?= $item['location'] ? ' — ' . h($item['location']) : '' ?>
+        <?= h($item['name']) ?><?= $item['location'] ? ' · ' . h($item['location']) : '' ?>
       </option>
     <?php endforeach; ?>
   </select>
@@ -66,7 +67,7 @@ page_header('Calendar', [
 <div id="calMessages"></div>
 
 <?php if (!$equipment): ?>
-  <div class="flash flash-notice">No instruments are set up yet. An administrator adds them under <a href="admin/equipment.php">Administration &rarr; Equipment</a>.</div>
+  <div class="flash flash-notice">No equipment is set up yet. An administrator adds them under <a href="admin/equipment.php">Administration &rarr; Equipment</a>.</div>
 <?php else: ?>
 
 <div class="cal-grid" id="calGrid"

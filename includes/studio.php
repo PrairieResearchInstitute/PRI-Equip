@@ -41,7 +41,13 @@ const STUDIO_EXTENSIONS = ['php', 'css', 'js', 'html', 'htm', 'json', 'md',
  * bundled PHP runtime, build output, and version control.
  */
 const STUDIO_SKIP_DIRS = ['data', 'tools/php', 'dist', '.git', '.claude',
-                          'node_modules', 'vendor'];
+                          'node_modules', 'vendor', 'reference'];
+
+/**
+ * Never listed either: config.local.json names the data folder, so an edit in
+ * the browser could point the application at another database.
+ */
+const STUDIO_SKIP_FILES = ['config.local.json', 'config.local.json.tmp'];
 
 /** Larger than any source file here, and small enough to edit in a browser. */
 const STUDIO_MAX_BYTES = 1048576;
@@ -81,12 +87,9 @@ function studio_backup_dir(): string
  */
 function can_edit_code(): bool
 {
-    $admin = admin_user();
-    if (!$admin) {
-        return false;
-    }
-    return (int) db_value('SELECT may_edit_code FROM admin_users WHERE user_id = ?',
-                          [$admin['user_id']]) === 1;
+    // may_edit_code in the password mode, the code_editor role in the NetID
+    // modes (D-015); includes/auth.php answers both.
+    return auth_may_edit_code();
 }
 
 /** The same question, where the answer has to stop the request. */
@@ -94,13 +97,16 @@ function require_code_editor(): array
 {
     $admin = require_admin();
     if (!can_edit_code()) {
-        page_header('Not granted', ['nav' => '', 'mainClass' => 'page narrow']);
-        echo '<h1>Editing the code is granted separately</h1>';
-        echo '<p class="lede">Being an administrator is not enough to rewrite the application.</p>';
+        page_header('Code Editing Not Granted', ['nav' => '', 'mainClass' => 'page narrow']);
+        echo '<h1>Code Editing Not Granted</h1>';
+        echo '<p class="lede">Being an administrator is not enough to rewrite the application. '
+           . 'Editing the code is granted on its own.</p>';
         echo '<p>Another administrator can grant it on the '
            . '<a href="users.php">Administrators</a> screen. If you are the only '
            . 'administrator, the grant can be set from the server command line with '
-           . '<code>php admin-recovery.php grant ' . h($admin['username']) . '</code>.</p>';
+           . (auth_uses_netid()
+               ? '<code>php tools/roles.php --pg live grant ' . h($admin['username']) . ' code_editor --owner-approved</code>.</p>'
+               : '<code>php admin-recovery.php grant ' . h($admin['username']) . '</code>.</p>');
         page_footer();
         exit;
     }
@@ -131,6 +137,9 @@ function studio_resolve(?string $rel): ?string
         return null;
     }
     if (studio_skipped(dirname(studio_relative($full)))) {
+        return null;
+    }
+    if (in_array(studio_relative($full), STUDIO_SKIP_FILES, true)) {
         return null;
     }
     $ext = strtolower((string) pathinfo($full, PATHINFO_EXTENSION));
@@ -187,6 +196,9 @@ function studio_tree(): array
             if ((int) @filesize($path) > STUDIO_MAX_BYTES) {
                 continue;
             }
+            if (in_array(studio_relative($path), STUDIO_SKIP_FILES, true)) {
+                continue;
+            }
             $out[] = studio_relative($path);
         }
     };
@@ -223,6 +235,18 @@ function studio_check(string $rel, string $code): array
 function studio_backup_name(string $rel): string
 {
     return date('Ymd-His') . '__' . str_replace('/', '~', $rel);
+}
+
+/**
+ * The 'Ymd-His' stamp in a backup name as ISO text, so the screen can print it
+ * through pretty_datetime() like every other date in the application (PCE-06).
+ * An unreadable stamp comes back as an empty string, which prints as nothing
+ * rather than as a wrong date.
+ */
+function studio_backup_time(string $stamp): string
+{
+    $when = DateTime::createFromFormat('Ymd-His', $stamp);
+    return $when === false ? '' : $when->format('Y-m-d H:i:s');
 }
 
 /** Every kept copy of one file, newest first. */

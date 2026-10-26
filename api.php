@@ -7,7 +7,7 @@
  *
  *     new_start < existing_end AND new_end > existing_start
  *
- * against the other bookings on the same instrument. A collision returns an
+ * against the other reservations on the same equipment. A collision returns an
  * error naming the holder; the browser puts the block back where it was.
  */
 
@@ -37,6 +37,10 @@ if (!db_installed()) {
     fail('The application is not installed yet.', 503);
 }
 
+// The NetID modes (D-015): no identity from the proxy, or from the development
+// sign-in, answers 401 here; the password mode passes straight through.
+auth_require_identity(true);
+
 $action = (string) ($_REQUEST['action'] ?? '');
 $isWrite = in_array($action, ['create', 'update', 'delete', 'repeat', 'mail_opened'], true);
 
@@ -49,7 +53,7 @@ if ($isWrite) {
         fail('Your session expired. Reload the page and try again.', 400, ['reload' => true]);
     }
     if (!is_admin() && current_user_name() === '') {
-        fail('Tell the application who you are before booking time.', 403, ['reload' => true]);
+        fail('Tell the application who you are before reservation time.', 403, ['reload' => true]);
     }
 }
 
@@ -68,7 +72,7 @@ function shape(array $row, string $me, bool $admin): array
         'usage_id'  => $row['usage_id'] ? (int) $row['usage_id'] : null,
 
         // Two different questions. "mine" decides the colour, and only the
-        // person who holds a booking sees it as theirs; an administrator
+        // person who holds a reservation sees it as theirs; an administrator
         // looking at the week should still see whose time it is. "may_edit"
         // decides whether dragging it does anything.
         'mine'      => ($me !== '' && strcasecmp((string) $row['reserved_by'], $me) === 0),
@@ -76,14 +80,14 @@ function shape(array $row, string $me, bool $admin): array
     ];
 }
 
-/** Refuse to touch a booking that belongs to somebody else. */
+/** Refuse to touch a reservation that belongs to somebody else. */
 function assert_may_change(array $row, string $me): void
 {
     if (is_admin()) {
         return;
     }
     if ($me === '' || strcasecmp((string) $row['reserved_by'], $me) !== 0) {
-        fail('That booking belongs to ' . ($row['reserved_by'] ?: 'somebody else')
+        fail('That reservation belongs to ' . ($row['reserved_by'] ?: 'somebody else')
             . '. An administrator can move or cancel it.', 403);
     }
 }
@@ -98,10 +102,10 @@ function read_span(string $startKey = 'start', string $endKey = 'end'): array
         fail('That start or end time could not be read.');
     }
     if ($end <= $start) {
-        fail('A booking has to end after it starts.');
+        fail('A reservation has to end after it starts.');
     }
     if (strtotime($end) - strtotime($start) > 14 * 86400) {
-        fail('A single booking cannot run longer than two weeks.');
+        fail('A single reservation cannot run longer than two weeks.');
     }
     return [$start, $end];
 }
@@ -115,7 +119,7 @@ switch ($action) {
         $weekEnd     = date('Y-m-d', strtotime($weekStart . ' +7 days'));
 
         if (!equipment_by_id($equipmentId)) {
-            fail('Choose an instrument.');
+            fail('Choose equipment.');
         }
 
         $rows = db_all(
@@ -146,22 +150,21 @@ switch ($action) {
         $reservedBy  = $me !== '' ? $me : admin_display_name();
         [$start, $end] = read_span();
 
-        $instrument = equipment_by_id($equipmentId);
-        if (!$instrument) {
-            fail('That instrument does not exist.');
+        $equipment = equipment_by_id($equipmentId);
+        if (!$equipment) {
+            fail('That equipment does not exist.');
         }
-        // Booking time on something that is out of service only wastes the
+        // Reservation time on something that is out of service only wastes the
         // booker's afternoon.
-        if (!equipment_is_usable($instrument)) {
-            fail((string) equipment_unusable_reason($instrument), 409);
+        if (!equipment_is_usable($equipment)) {
+            fail((string) equipment_unusable_reason($equipment), 409);
         }
 
-        $pdo = db();
-        $pdo->beginTransaction();
+        db_begin();
         try {
             $clash = reservation_conflict($equipmentId, $start, $end);
             if ($clash) {
-                $pdo->rollBack();
+                db_rollback();
                 fail(conflict_message($clash), 409);
             }
             db_run(
@@ -169,11 +172,11 @@ switch ($action) {
                  VALUES (?, ?, ?, ?, ?, ?)',
                 [$equipmentId, $reservedBy, $start, $end, $purpose, date('Y-m-d H:i:s')]
             );
-            $id = (int) $pdo->lastInsertId();
-            $pdo->commit();
+            $id = (int) db_last_id();
+            db_commit();
         } catch (Throwable $e) {
-            if ($pdo->inTransaction()) { $pdo->rollBack(); }
-            fail('The booking was not saved. Try again.', 500);
+            if (db_in_transaction()) { db_rollback(); }
+            fail('The reservation was not saved. Try again.', 500);
         }
 
         respond([
@@ -186,28 +189,27 @@ switch ($action) {
         $id  = (int) ($_POST['reservation_id'] ?? 0);
         $row = db_one('SELECT * FROM reservations WHERE reservation_id = ?', [$id]);
         if (!$row) {
-            fail('That booking has already been cancelled.', 404, ['gone' => true]);
+            fail('That reservation has already been cancelled.', 404, ['gone' => true]);
         }
         assert_may_change($row, $me);
 
         [$start, $end] = read_span();
         $purpose = array_key_exists('purpose', $_POST) ? trim((string) $_POST['purpose']) : $row['purpose'];
 
-        $pdo = db();
-        $pdo->beginTransaction();
+        db_begin();
         try {
             $clash = reservation_conflict((int) $row['equipment_id'], $start, $end, $id);
             if ($clash) {
-                $pdo->rollBack();
+                db_rollback();
                 fail(conflict_message($clash), 409);
             }
             db_run(
                 'UPDATE reservations SET start_datetime = ?, end_datetime = ?, purpose = ? WHERE reservation_id = ?',
                 [$start, $end, $purpose, $id]
             );
-            $pdo->commit();
+            db_commit();
         } catch (Throwable $e) {
-            if ($pdo->inTransaction()) { $pdo->rollBack(); }
+            if (db_in_transaction()) { db_rollback(); }
             fail('The change was not saved. Try again.', 500);
         }
 
@@ -229,7 +231,7 @@ switch ($action) {
 
     // -----------------------------------------------------------------------
     // Repeat: one time span applied across chosen weekdays of a week, so
-    // booking an instrument from one to two every weekday is two clicks.
+    // reservation equipment from one to two every weekday is two clicks.
     case 'repeat':
         $equipmentId = (int) ($_POST['equipment_id'] ?? 0);
         $weekStart   = clean_date($_POST['week_start'] ?? null);
@@ -238,10 +240,10 @@ switch ($action) {
         $reservedBy  = $me !== '' ? $me : admin_display_name();
         [$start, $end] = read_span();
 
-        $instrument = equipment_by_id($equipmentId);
-        if (!$instrument)                   { fail('That instrument does not exist.'); }
-        if (!equipment_is_usable($instrument)) {
-            fail((string) equipment_unusable_reason($instrument), 409);
+        $equipment = equipment_by_id($equipmentId);
+        if (!$equipment)                   { fail('That equipment does not exist.'); }
+        if (!equipment_is_usable($equipment)) {
+            fail((string) equipment_unusable_reason($equipment), 409);
         }
         if (!$weekStart)                    { fail('The week could not be read.'); }
         if (!is_array($days) || !$days)     { fail('Choose at least one day to repeat on.'); }
@@ -252,8 +254,7 @@ switch ($action) {
         $created = [];
         $skipped = [];
 
-        $pdo = db();
-        $pdo->beginTransaction();
+        db_begin();
         try {
             foreach ($days as $day) {
                 $day = (int) $day;
@@ -272,18 +273,18 @@ switch ($action) {
                      VALUES (?, ?, ?, ?, ?, ?)',
                     [$equipmentId, $reservedBy, $dayStart, $dayEnd, $purpose, date('Y-m-d H:i:s')]
                 );
-                $created[] = (int) $pdo->lastInsertId();
+                $created[] = (int) db_last_id();
             }
-            $pdo->commit();
+            db_commit();
         } catch (Throwable $e) {
-            if ($pdo->inTransaction()) { $pdo->rollBack(); }
+            if (db_in_transaction()) { db_rollback(); }
             fail('The repeat was not saved. Try again.', 500);
         }
 
         $rows = [];
         if ($created) {
             $placeholders = implode(',', array_fill(0, count($created), '?'));
-            $rows = db_all('SELECT * FROM reservations WHERE reservation_id IN (' . $placeholders . ')', $created);
+            $rows = db_all('SELECT * FROM reservations WHERE reservation_id IN (' . $placeholders . ')', $created); // db-calls: allow placeholders only (one ? per id); the ids are bound
         }
 
         respond([

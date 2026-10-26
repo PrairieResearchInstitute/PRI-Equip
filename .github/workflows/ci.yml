@@ -42,3 +42,49 @@ jobs:
       # 111 checks, no dependencies, exits non-zero on failure.
       - name: Run the test suite
         run: php tests/run-tests.php
+
+  # The same suite on PostgreSQL 17 (platform D-027). The service is a
+  # throwaway made for this job: its password exists only here and guards an
+  # empty container that disappears when the job ends. The harness builds the
+  # test database from migrations/*.pgsql.sql and refuses any database whose
+  # name does not end in _test. It listens on 5433, the port of the estate
+  # cluster on the drive (platform D-028), through PGPORT, which the server and
+  # pg_isready in the container both read.
+  test-postgres:
+    name: Tests on PostgreSQL
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: pacelab_app
+          POSTGRES_PASSWORD: ci-throwaway
+          POSTGRES_DB: pacelab_test
+          PGPORT: "5433"
+        ports:
+          - 5433:5433
+        options: >-
+          --health-cmd "pg_isready -U pacelab_app -d pacelab_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PACELAB_TEST_DRIVER: pgsql
+      PGHOST: 127.0.0.1
+      PGPORT: "5433"
+      PGUSER: pacelab_app
+      PGPASSWORD: ci-throwaway
+      PGTESTDATABASE: pacelab_test
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          extensions: pdo_pgsql, pdo_sqlite
+          coverage: none
+
+      - name: Run the test suite on PostgreSQL, twice (the second run proves the rebuild)
+        run: |
+          php tests/run-tests.php
+          php tests/run-tests.php

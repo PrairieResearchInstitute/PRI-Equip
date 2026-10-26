@@ -1,7 +1,7 @@
 /* ==========================================================================
    app.js — the use entry form.
 
-   Two jobs: fill the read-only rate fields from the chosen instrument, and keep
+   Two jobs: fill the read-only rate fields from the chosen equipment, and keep
    the total charge current as the count changes. It also narrows the grant list
    to awards that cover the date of the run, which is a convenience only — the
    server checks the same rule and refuses the entry if it fails.
@@ -12,7 +12,7 @@
 /* --------------------------------------------------------------------------
    Handing a composed message to the mail client.
 
-   The administrative panel builds a mailto: link when an instrument is retired
+   The administrative panel builds a mailto: link when equipment is retired
    or goes out of service. Following it opens whatever mail client the person
    uses, which on a campus desktop is Outlook, with the message ready but not
    sent. Nothing leaves the machine until they press send.
@@ -189,7 +189,7 @@
       if (subaccountField) { subaccountField.value = dash; }
       if (countUnit)       { countUnit.textContent = ''; }
       if (totalOut)        { totalOut.textContent = dash; }
-      if (formulaOut)      { formulaOut.textContent = 'Choose an instrument and a count.'; }
+      if (formulaOut)      { formulaOut.textContent = 'Choose equipment and a count.'; }
       if (metaRate)        { metaRate.textContent = dash; }
       if (metaUnit)        { metaUnit.textContent = dash; }
       if (metaSubaccount)  { metaSubaccount.textContent = dash; }

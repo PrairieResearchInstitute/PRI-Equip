@@ -18,7 +18,7 @@ $counts = [
            AND end_date IS NOT NULL AND end_date <> \'\' AND end_date BETWEEN ? AND ?',
         [current_lab_id(), date('Y-m-d'), date('Y-m-d', strtotime('+60 days'))]),
 
-    // Charges and bookings belong to a laboratory through the instrument they
+    // Charges and reservations belong to a laboratory through the equipment they
     // were made against, so they are counted through that join rather than by
     // a column of their own that could drift out of step with it.
     'unexported'  => (int) db_value(
@@ -51,13 +51,13 @@ admin_header('index', 'Administration');
   </div>
   <form method="post" action="logout.php">
     <?= csrf_field() ?>
-    <button type="submit" class="button button-secondary button-small">Sign out</button>
+    <button type="submit" class="button button-secondary button-small">Sign Out</button>
   </form>
 </div>
 
 <div class="totals-strip">
   <div class="total-tile">
-    <div class="label">Active instruments</div>
+    <div class="label">Active equipment</div>
     <div class="value"><?= $counts['equipment'] ?></div>
     <p class="hint"><?= $counts['retired'] ?> retired</p>
   </div>
@@ -72,7 +72,7 @@ admin_header('index', 'Administration');
     <p class="hint"><?= h(money($counts['unexported_amount'])) ?> in charges</p>
   </div>
   <div class="total-tile">
-    <div class="label">Bookings ahead</div>
+    <div class="label">Reservations ahead</div>
     <div class="value"><?= $counts['upcoming'] ?></div>
     <p class="hint">now and later</p>
   </div>
@@ -81,48 +81,44 @@ admin_header('index', 'Administration');
 <?php if ($counts['equipment'] === 0 || $counts['grants'] === 0): ?>
   <div class="flash flash-notice">
     Seed the reference data before anyone uses the entry form:
-    <?= $counts['equipment'] === 0 ? 'add at least one instrument' : '' ?><?= ($counts['equipment'] === 0 && $counts['grants'] === 0) ? ' and ' : '' ?><?= $counts['grants'] === 0 ? 'add at least one grant' : '' ?>.
+    <?= $counts['equipment'] === 0 ? 'add at least one piece of equipment' : '' ?><?= ($counts['equipment'] === 0 && $counts['grants'] === 0) ? ' and ' : '' ?><?= $counts['grants'] === 0 ? 'add at least one grant' : '' ?>.
   </div>
 <?php endif; ?>
 
 <h2>What this panel covers</h2>
+<?php
+/*
+ * One card per admin_pages() entry, in that order, so a screen added to the
+ * list cannot be reachable from the breadcrumb and invisible here, which is
+ * how Laboratories, the message log and the Studio went missing (PCE-07).
+ * A screen with no sentence here still gets a card.
+ */
+$cardText = [
+    'labs'         => 'The laboratories sharing this equipment, who belongs to each, and which one you are working in.',
+    'equipment'    => 'Add, edit, and retire equipment. Retiring hides equipment from the dropdowns and preserves every historical charge.',
+    'grants'       => 'CFOPA, title, short label, principal investigator, unit, and award dates. Expired grants leave the charge dropdown on their own.',
+    'units'        => 'The survey codes offered when a grant is added.',
+    'records'      => 'Correct or void any charge. A void needs a reason and leaves the row in place as an audit trail.',
+    'costs'        => 'Consumables, repairs, parts, and the contracts that cover each equipment, set against what it has earned.',
+    'reservations' => 'Cancel or reassign any reservation on any equipment.',
+    'batches'      => 'Review past monthly exports and reopen one when the business office rejects it.',
+    'emails'       => 'Every message the application has written, with the words it handed to Outlook and whether it was opened.',
+    'settings'     => 'Laboratory name, page titles, and the instructions shown on each screen.',
+    'users'        => auth_uses_netid()
+        ? 'Who may act as an administrator or edit the code, by NetID or by group.'
+        : 'Add or remove administrator accounts and reset passwords.',
+    'studio'       => 'Edit the application\'s own source from inside it. Every save is parsed first and the previous copy is kept.',
+];
+?>
 <div class="grid-cards">
-  <a class="card" href="equipment.php">
-    <h3>Equipment</h3>
-    <p>Add, edit, and retire instruments. Retiring hides an instrument from the dropdowns and preserves every historical charge.</p>
-  </a>
-  <a class="card" href="grants.php">
-    <h3>Grants</h3>
-    <p>CFOPA, title, short label, principal investigator, unit, and award dates. Expired grants leave the charge dropdown on their own.</p>
-  </a>
-  <a class="card" href="units.php">
-    <h3>Units</h3>
-    <p>The survey codes offered when a grant is added.</p>
-  </a>
-  <a class="card" href="records.php">
-    <h3>Usage records</h3>
-    <p>Correct or void any charge. A void needs a reason and leaves the row in place as an audit trail.</p>
-  </a>
-  <a class="card" href="costs.php">
-    <h3>Running costs</h3>
-    <p>Consumables, repairs, parts, and the contracts that cover each instrument, set against what it has earned.</p>
-  </a>
-  <a class="card" href="reservations.php">
-    <h3>Reservations</h3>
-    <p>Cancel or reassign any booking on any instrument.</p>
-  </a>
-  <a class="card" href="batches.php">
-    <h3>Export history</h3>
-    <p>Review past monthly exports and reopen one when the business office rejects it.</p>
-  </a>
-  <a class="card" href="settings.php">
-    <h3>Interface text</h3>
-    <p>Laboratory name, page titles, and the instructions shown on each screen.</p>
-  </a>
-  <a class="card" href="users.php">
-    <h3>Administrators</h3>
-    <p>Add or remove administrator accounts and reset passwords.</p>
-  </a>
+  <?php foreach (admin_pages() as $key => [$label, $href]): ?>
+    <?php if ($key === 'index') { continue; } ?>
+    <?php if ($key === 'studio' && !auth_may_edit_code()) { continue; } ?>
+    <a class="card" href="<?= h($href) ?>">
+      <h3><?= h($label) ?></h3>
+      <p><?= h($cardText[$key] ?? '') ?></p>
+    </a>
+  <?php endforeach; ?>
 </div>
 
 <?php if ($expiring): ?>
@@ -147,7 +143,7 @@ admin_header('index', 'Administration');
 <?php endif; ?>
 
 <?php if ($recentBatches): ?>
-<h2>Recent export batches</h2>
+<h2>Recent exports</h2>
 <div class="card card-tight">
   <div class="table-wrap">
     <table class="data">
@@ -160,14 +156,14 @@ admin_header('index', 'Administration');
           <td><?= h($b['generated_by']) ?></td>
           <td class="num"><?= (int) $b['record_count'] ?></td>
           <td class="num"><?= h(money($b['total_amount'])) ?></td>
-          <td><?= ((int) $b['reopened'] === 1) ? '<span class="pill pill-warn">reopened</span>' : '' ?></td>
+          <td><?= ((int) $b['reopened'] === 1) ? '<span class="pill pill-warn">Reopened</span>' : '' ?></td>
         </tr>
       <?php endforeach; ?>
       </tbody>
     </table>
   </div>
 </div>
-<p><a class="link-quiet" href="batches.php">All export batches &rarr;</a></p>
+<p><a class="link-quiet" href="batches.php">All exports &rarr;</a></p>
 <?php endif; ?>
 
 <?php

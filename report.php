@@ -5,7 +5,7 @@
  * The default range is last calendar month and the default filter is records
  * not yet exported, which together are the normal monthly run.
  *
- * The export carries charge lines only: CFOPA, receiving subaccount, instrument,
+ * The export carries charge lines only: CFOPA, receiving subaccount, equipment,
  * count, rate, and total. Operator, date, and notes stay on screen, where a
  * questioned charge gets traced.
  */
@@ -49,8 +49,8 @@ function charge_lines(string $start, string $end, bool $unexportedOnly): array
 }
 
 /**
- * CFOPA → instrument → charge lines, with subtotals at each level.
- * The export writes one row per instrument-and-rate group; the screen expands
+ * CFOPA → equipment → charge lines, with subtotals at each level.
+ * The export writes one row per equipment-and-rate group; the screen expands
  * each group into its individual runs.
  */
 function group_lines(array $lines): array
@@ -62,17 +62,17 @@ function group_lines(array $lines): array
             $groups[$cfopa] = [
                 'cfopa'       => $cfopa,
                 'title'       => $line['display_label'] ?: $line['grant_title'],
-                'instruments' => [],
+                'equipment' => [],
                 'count'       => 0,
                 'total'       => 0.0,
             ];
         }
 
         // The rate is part of the key: a rate change mid-period produces two
-        // charge lines for the same instrument, each at the rate actually charged.
+        // charge lines for the same equipment, each at the rate actually charged.
         $key = $line['equipment_id'] . '|' . $line['rate_charged'] . '|' . $line['receiving_subaccount'];
-        if (!isset($groups[$cfopa]['instruments'][$key])) {
-            $groups[$cfopa]['instruments'][$key] = [
+        if (!isset($groups[$cfopa]['equipment'][$key])) {
+            $groups[$cfopa]['equipment'][$key] = [
                 'name'       => $line['equipment_name'],
                 'rate'       => (float) $line['rate_charged'],
                 'rate_unit'  => $line['rate_unit_charged'],
@@ -83,9 +83,9 @@ function group_lines(array $lines): array
             ];
         }
 
-        $groups[$cfopa]['instruments'][$key]['rows'][]  = $line;
-        $groups[$cfopa]['instruments'][$key]['count']  += (int) $line['sample_count'];
-        $groups[$cfopa]['instruments'][$key]['total']  += (float) $line['total_charge'];
+        $groups[$cfopa]['equipment'][$key]['rows'][]  = $line;
+        $groups[$cfopa]['equipment'][$key]['count']  += (int) $line['sample_count'];
+        $groups[$cfopa]['equipment'][$key]['total']  += (float) $line['total_charge'];
         $groups[$cfopa]['count'] += (int) $line['sample_count'];
         $groups[$cfopa]['total'] += (float) $line['total_charge'];
     }
@@ -100,8 +100,7 @@ function mark_period_exported(string $start, string $end): void
         redirect('admin/login.php');
     }
 
-    $pdo = db();
-    $pdo->beginTransaction();
+    db_begin();
     try {
         // Re-read inside the transaction so the batch contains exactly what is
         // unexported at this moment, not what the screen showed a minute ago.
@@ -114,7 +113,7 @@ function mark_period_exported(string $start, string $end): void
         );
 
         if (!$rows) {
-            $pdo->rollBack();
+            db_rollback();
             flash('Nothing in that range is waiting to be exported.', 'notice');
             redirect('report.php?start=' . $start . '&end=' . $end);
         }
@@ -127,7 +126,7 @@ function mark_period_exported(string $start, string $end): void
              VALUES (?, ?, ?, ?, ?, ?, ?, 0)',
             [current_lab_id(), $start, $end, date('Y-m-d H:i:s'), admin_display_name(), count($rows), round($total, 2)]
         );
-        $batchId = (int) $pdo->lastInsertId();
+        $batchId = (int) db_last_id();
 
         $ids = array_column($rows, 'usage_id');
         $placeholders = implode(',', array_fill(0, count($ids), '?'));
@@ -136,10 +135,10 @@ function mark_period_exported(string $start, string $end): void
             array_merge([$batchId], $ids)
         );
 
-        $pdo->commit();
+        db_commit();
         flash('Batch ' . $batchId . ' created: ' . count($ids) . ' records, ' . money($total) . '. Those charges are now locked.', 'success');
     } catch (Throwable $e) {
-        if ($pdo->inTransaction()) { $pdo->rollBack(); }
+        if (db_in_transaction()) { db_rollback(); }
         flash('The batch was not created: ' . $e->getMessage(), 'error');
     }
     redirect('report.php?start=' . $start . '&end=' . $end);
@@ -148,6 +147,12 @@ function mark_period_exported(string $start, string $end): void
 // --- Mark as exported ------------------------------------------------------
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'mark_exported') {
     csrf_require();
+    if (needs_confirmation()) {
+        confirm_page('Close the Period',
+                     'Create an export for the charges in this period? Those charges become locked.',
+                     'Create Export Batch', $_POST,
+                     'report.php?start=' . urlencode($start) . '&end=' . urlencode($end));
+    }
     mark_period_exported($start, $end);
 }
 
@@ -167,14 +172,14 @@ if (($_GET['download'] ?? '') === 'csv') {
 
     $grand = 0.0;
     foreach ($groups as $group) {
-        foreach ($group['instruments'] as $instrument) {
+        foreach ($group['equipment'] as $equipment) {
             fputcsv($out, [
                 $group['cfopa'],
-                $instrument['subaccount'],
-                $instrument['name'],
-                $instrument['count'],
-                number_format($instrument['rate'], 2, '.', ''),
-                number_format($instrument['total'], 2, '.', ''),
+                $equipment['subaccount'],
+                $equipment['name'],
+                $equipment['count'],
+                number_format($equipment['rate'], 2, '.', ''),
+                number_format($equipment['total'], 2, '.', ''),
             ]);
         }
         $grand += $group['total'];
@@ -202,16 +207,16 @@ $pendingCount = count($lines) - $lockedCount;
 
 $query = 'start=' . urlencode($start) . '&end=' . urlencode($end) . ($unexportedOnly ? '' : '&all_records=1');
 
-page_header('Billing report', ['nav' => 'report', 'mainClass' => 'page wide']);
+page_header('Billing Report', ['nav' => 'report', 'mainClass' => 'page wide']);
 ?>
 <div class="page-head">
   <div>
-    <h1><?= h(setting('report_title', 'Monthly billing report')) ?></h1>
+    <h1><?= h(setting('report_title', 'Billing Report')) ?></h1>
     <p class="lede"><?= h(setting('report_instructions')) ?></p>
   </div>
 </div>
 
-<?php accordion_open('report-filters', 'Range and filter', [
+<?php accordion_open('report-filters', 'Range and Filter', [
     'open' => true,
     'meta' => 'showing ' . pretty_date($start) . ' to ' . pretty_date($end),
 ]); ?>
@@ -232,7 +237,7 @@ page_header('Billing report', ['nav' => 'report', 'mainClass' => 'page wide']);
     </select>
   </div>
   <div class="button-row">
-    <button type="submit" class="button">Run report</button>
+    <button type="submit" class="button button-small">Run Report</button>
     <a class="button button-secondary" href="?<?= h($query) ?>&amp;download=csv">Download CSV</a>
   </div>
 </form>
@@ -261,15 +266,16 @@ page_header('Billing report', ['nav' => 'report', 'mainClass' => 'page wide']);
 
 <?php if ($unexportedOnly && $pendingCount > 0): ?>
 <form method="post" class="card no-print"
-      onsubmit="return confirm('Create an export batch for <?= $pendingCount ?> record(s) totalling <?= h(money($grandTotal)) ?>? Those charges become locked.');">
+      data-confirm="Create an export for <?= $pendingCount ?> record(s) totalling <?= h(money($grandTotal)) ?>? Those charges become locked."
+      data-confirm-title="Close the Period" data-confirm-ok="Create Export Batch">
   <?= csrf_field() ?>
   <input type="hidden" name="action" value="mark_exported">
   <input type="hidden" name="start" value="<?= h($start) ?>">
   <input type="hidden" name="end" value="<?= h($end) ?>">
-  <h2 class="card-heading">Close the period</h2>
-  <p>Marking these records as exported records an export batch, stamps every record with it, and locks the charges. They stay visible on this screen. An administrator can reopen the batch if the business office rejects it.</p>
+  <h2 class="card-heading">Close the Period</h2>
+  <p>Marking these records as exported records an export, stamps every record with it, and locks the charges. They stay visible on this screen. An administrator can reopen the batch if the business office rejects it.</p>
   <div class="button-row">
-    <button type="submit" class="button">Mark <?= $pendingCount ?> record<?= $pendingCount === 1 ? '' : 's' ?> as exported</button>
+    <button type="submit" class="button">Mark <?= $pendingCount ?> Record<?= $pendingCount === 1 ? '' : 's' ?> as Exported</button>
     <?php if (!is_admin()): ?>
       <span class="hint">Requires an administrator sign-in.</span>
     <?php endif; ?>
@@ -286,7 +292,7 @@ page_header('Billing report', ['nav' => 'report', 'mainClass' => 'page wide']);
   // The whole detail folds away, and every account folds away inside it. The
   // summary lines carry the account, the grant, and the total, so a closed
   // report still answers "who is being charged what" without opening anything.
-  accordion_open('report-detail', 'Charge detail', [
+  accordion_open('report-detail', 'Charge Detail', [
       'open' => true,
       'meta' => count($groups) . ' account' . (count($groups) === 1 ? '' : 's')
               . ' · ' . count($lines) . ' charge lines · ' . money($grandTotal),
@@ -295,31 +301,31 @@ page_header('Billing report', ['nav' => 'report', 'mainClass' => 'page wide']);
 <?php endif; ?>
 
 <?php foreach ($groups as $group): ?>
-<?php accordion_open('report-cfopa-' . $group['cfopa'], $group['cfopa'] . ' — ' . $group['title'], [
+<?php accordion_open('report-cfopa-' . $group['cfopa'], $group['cfopa'] . ' · ' . $group['title'], [
     'meta' => (int) $group['count'] . ' counted · ' . money($group['total']),
 ]); ?>
   <div class="table-wrap">
     <table class="data">
       <thead>
         <tr>
-          <th>Use date</th><th>Operator</th><th>Batch</th><th>Notes</th>
+          <th>Use date</th><th>Operator last name</th><th>Export</th><th>Notes</th>
           <th class="num">Count</th><th class="num">Rate</th><th class="num">Charge</th><th>Status</th>
         </tr>
       </thead>
       <tbody>
-      <?php foreach ($group['instruments'] as $instrument): ?>
-        <tr class="instrument-head">
+      <?php foreach ($group['equipment'] as $equipment): ?>
+        <tr class="equipment-head">
           <td colspan="4">
-            <?= h($instrument['name']) ?>
-            <span class="muted">&middot; <?= h(money($instrument['rate'])) ?> <?= h($instrument['rate_unit']) ?>
-            &middot; subaccount <?= h($instrument['subaccount']) ?></span>
+            <?= h($equipment['name']) ?>
+            <span class="muted">&middot; <?= h(money($equipment['rate'])) ?> <?= h($equipment['rate_unit']) ?>
+            &middot; subaccount <?= h($equipment['subaccount']) ?></span>
           </td>
-          <td class="num"><?= (int) $instrument['count'] ?></td>
-          <td class="num"><?= h(money($instrument['rate'])) ?></td>
-          <td class="num"><?= h(money($instrument['total'])) ?></td>
+          <td class="num"><?= (int) $equipment['count'] ?></td>
+          <td class="num"><?= h(money($equipment['rate'])) ?></td>
+          <td class="num"><?= h(money($equipment['total'])) ?></td>
           <td></td>
         </tr>
-        <?php foreach ($instrument['rows'] as $row): ?>
+        <?php foreach ($equipment['rows'] as $row): ?>
         <tr>
           <td class="nowrap"><?= h(pretty_date($row['use_date'])) ?></td>
           <td><?= h($row['operator_name']) ?></td>
@@ -330,9 +336,10 @@ page_header('Billing report', ['nav' => 'report', 'mainClass' => 'page wide']);
           <td class="num nowrap"><?= h(money($row['total_charge'])) ?></td>
           <td class="nowrap">
             <?php if ((int) $row['exported'] === 1): ?>
-              <span class="pill pill-locked">batch <?= (int) $row['batch_id'] ?></span>
+              <span class="pill pill-locked">Exported</span>
+              <span class="muted">export <?= (int) $row['batch_id'] ?></span>
             <?php else: ?>
-              <span class="pill">pending</span>
+              <span class="pill">Pending</span>
             <?php endif; ?>
           </td>
         </tr>

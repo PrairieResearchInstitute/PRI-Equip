@@ -8,6 +8,9 @@ REM  stops, so http://localhost:8147/ is normally just there.
 REM
 REM  Double-click this if the browser ever says the site cannot be reached. It
 REM  makes sure the server is up and then opens it. Running it twice is safe.
+REM
+REM  On PostgreSQL it first starts the estate's PostgreSQL on this drive
+REM  (port 5433) unless it already runs (tools\estate-pg.ps1).
 REM ===========================================================================
 
 cd /d "%~dp0"

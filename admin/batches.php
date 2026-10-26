@@ -1,6 +1,6 @@
 <?php
 /**
- * admin/batches.php — Export batch history, and reopening a rejected batch.
+ * admin/batches.php — Export history, and reopening a rejected batch.
  *
  * Reopening returns every record in the batch to the unexported pool so the
  * next monthly run picks it up again. The batch row itself stays, marked
@@ -25,18 +25,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if (($_POST['action'] ?? '') === 'reopen') {
-        $pdo = db();
-        $pdo->beginTransaction();
+        if (needs_confirmation()) {
+            confirm_page('Reopen Batch',
+                         'Reopen batch ' . (int) ($_POST['batch_id'] ?? 0)
+                             . '? Its records return to the unexported pool.',
+                         'Reopen', $_POST, 'batches.php');
+        }
+        db_begin();
         try {
             $affected = db_run(
                 'UPDATE usage_records SET exported = 0, export_batch_id = NULL WHERE export_batch_id = ?',
                 [$batchId]
             )->rowCount();
             db_run('UPDATE export_batches SET reopened = 1 WHERE batch_id = ?', [$batchId]);
-            $pdo->commit();
+            db_commit();
             flash('Batch ' . $batchId . ' reopened. ' . $affected . ' record(s) returned to the unexported pool.');
         } catch (Throwable $e) {
-            if ($pdo->inTransaction()) { $pdo->rollBack(); }
+            if (db_in_transaction()) { db_rollback(); }
             flash('The batch was not reopened: ' . $e->getMessage(), 'error');
         }
         redirect('batches.php');
@@ -69,9 +74,9 @@ if (isset($_GET['view'])) {
     }
 }
 
-admin_header('batches', 'Export history');
+admin_header('batches', 'Export History');
 ?>
-<h1>Export history</h1>
+<h1>Export History</h1>
 <p class="lede">Every monthly run leaves a batch here. Reopen one when the business office rejects it.</p>
 
 <div class="card card-tight">
@@ -85,7 +90,7 @@ admin_header('batches', 'Export history');
       </thead>
       <tbody>
       <?php if (!$batches): ?>
-        <tr><td colspan="8" class="empty">No export batches yet. The billing report creates them.</td></tr>
+        <tr><td colspan="8" class="empty">No exports yet. The billing report creates them.</td></tr>
       <?php endif; ?>
       <?php foreach ($batches as $batch): ?>
         <tr>
@@ -97,16 +102,18 @@ admin_header('batches', 'Export history');
           <td class="num nowrap"><?= h(money($batch['total_amount'])) ?></td>
           <td class="nowrap">
             <?php if ((int) $batch['reopened'] === 1): ?>
-              <span class="pill pill-warn">reopened</span>
+              <span class="pill pill-warn">Reopened</span>
             <?php else: ?>
-              <span class="pill pill-ok">sent</span>
+              <span class="pill pill-ok">Sent</span>
             <?php endif; ?>
           </td>
           <td class="nowrap">
             <div class="button-row">
               <a class="button button-secondary button-small" href="?view=<?= (int) $batch['batch_id'] ?>">Records</a>
               <?php if ((int) $batch['still_attached'] > 0): ?>
-                <form method="post" onsubmit="return confirm('Reopen batch <?= (int) $batch['batch_id'] ?>? Its <?= (int) $batch['still_attached'] ?> record(s) return to the unexported pool.');">
+                <form method="post"
+                      data-confirm="Reopen batch <?= (int) $batch['batch_id'] ?>? Its <?= (int) $batch['still_attached'] ?> record(s) return to the unexported pool."
+                      data-confirm-ok="Reopen">
                   <?= csrf_field() ?>
                   <input type="hidden" name="action" value="reopen">
                   <input type="hidden" name="batch_id" value="<?= (int) $batch['batch_id'] ?>">
@@ -131,7 +138,7 @@ admin_header('batches', 'Export history');
   <div class="table-wrap">
     <table class="data">
       <thead>
-        <tr><th>#</th><th>CFOPA</th><th>Instrument</th><th>Use date</th><th>Operator</th><th class="num">Count</th><th class="num">Charge</th></tr>
+        <tr><th>#</th><th>CFOPA</th><th>Equipment</th><th>Use date</th><th>Operator last name</th><th class="num">Count</th><th class="num">Charge</th></tr>
       </thead>
       <tbody>
       <?php foreach ($rows as $row): ?>

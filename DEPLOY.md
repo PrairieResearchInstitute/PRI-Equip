@@ -24,8 +24,13 @@ and walking every screen. It came up clean, with no PHP diagnostics of any kind.
     index.php          home.php           lab.php
     schedule.php       report.php         api.php
     check.php          install.php        admin-recovery.php
+    health.php         config.template.json
     DEPLOY.md          (this file)
     includes/          auth.php  db.php  functions.php  schema.php
+                       local-config.php  studio.php  env.php  db_migrations.php
+                       .htaccess  web.config
+    migrations/        0001_baseline.pgsql.sql  0001_baseline.sqlite.sql
+                       0002_lab_id_required.pgsql.sql  0002_lab_id_required.sqlite.sql
                        .htaccess  web.config
     assets/            style.css  app.js  calendar.js
     admin/             all 15 .php files
@@ -41,11 +46,13 @@ and walking every screen. It came up clean, with no PHP diagnostics of any kind.
 | `tests/` | Optional. Harmless, but it belongs with the source rather than on the server. |
 | `.git/`, `.claude/`, `.gitignore`, `.gitattributes` | Not part of the application. |
 | `*.docx` | The spec and the README. |
+| `config.local.json` | Names the data folder on the computer it was written on. The server makes its own; see below. |
 
 ## What the server needs
 
 PHP 8.0 or later with PDO SQLite and sessions. Nothing else — no Composer, no
-extensions to install, no database server to provision.
+extensions to install, no database server to provision. (PostgreSQL is the
+option for a multi-user host; see "Running on PostgreSQL" below.)
 
 It is developed and tested on PHP 8.3, and driven end to end with
 `error_reporting=E_ALL` and `display_errors` on: no deprecation, no warning and
@@ -89,15 +96,158 @@ HTTP, exactly as an outsider would, and reports one of:
 So: **run `check.php` again after installing, before deleting it.** Before
 installation there is no database and the test has nothing to answer.
 
-To move the database out of the web root — the safest arrangement, and the only
-one that does not depend on server configuration — create `config.php` beside
-`index.php` containing:
+## Where the database lives
+
+Two files can move it and they are not interchangeable. Read both before
+choosing one.
+
+**On a server, use `config.php`.** Create it beside `index.php`:
 
 ```php
 <?php define('LAB_DB_PATH', '/var/www/private/lab.sqlite');
 ```
 
-The directory must exist and be writable by the web server account.
+The path is absolute, the directory must exist and be writable by the web
+server account, and nothing else changes. Moving the database out of the web
+root this way is the safest arrangement and the only one that does not depend
+on server configuration, which matters most on nginx, where neither
+`.htaccess` nor `web.config` is read at all.
+
+**`config.local.json` is the portable mechanism.** The Windows copy this
+application is developed on uses it, because there the data folder travels
+separately from the application. Copy `config.template.json` to
+`config.local.json` and fill in the folder:
+
+```json
+{ "dataFolder": "../lab-data", "backupFolder": "../lab-backups" }
+```
+
+The path is relative to the application folder and an absolute one is refused,
+so `../lab-data` is how it reaches a folder beside the web root rather than
+inside it. The folder holds `lab.sqlite`, the install lock, the logs and the
+Studio backups, and the application writes the Apache and IIS deny files into
+it the first time it opens the database.
+
+**`config.php` wins.** When both files exist, `LAB_DB_PATH` from `config.php`
+decides where the database is and `dataFolder` has no say in it. Set one or
+the other, not both.
+
+## Running on PostgreSQL
+
+SQLite stays the default: an installation that sets nothing runs exactly as
+described above. A multi-user host (Radiant) runs the same files on PostgreSQL;
+only settings change.
+
+**What the server needs in addition:** PHP's `pdo_pgsql` extension, a
+PostgreSQL database (17 is what the application is tested on) and a login role
+for the application. The database name for tests must end in `_test`.
+
+**Settings.** The application reads the standard PostgreSQL names: `PGHOST`,
+`PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`, and `PGTESTDATABASE` for the
+test database. Put them in the service's environment (for the container,
+the tier's environment file named in `compose.yaml`). Where that is not
+possible, the application also reads a `pg.env` beside its data folder, then
+a `.env` beside `index.php`; either file must be readable only by the web
+server account and must never be served. `pg.env` sits one level above the
+data folder, so with `dataFolder` pointing outside the web root it is outside
+too. Do not use `.env` on a server: it sits inside the application folder,
+and unlike `config.php`, which the server runs, a plain-text file in the web
+root is handed to anyone who asks for it unless the server is told otherwise.
+On the owner's computer the built-in PHP server refuses it through
+`tools/router.php`. `env.template.txt` in the source lists every name. Nothing the application prints ever includes
+a value: a connection failure says only "The database could not be reached".
+
+**Choosing PostgreSQL.** Set `PACELAB_DRIVER=pgsql` in the service's
+environment. (The drive copy is switched with
+`php tools/config.php set databaseDriver pgsql` instead; a value the server
+sets in its real environment always wins.)
+
+**On the drive (until Radiant).** The owner's copy uses the estate's own
+PostgreSQL, program and data on the portable drive, never a PostgreSQL
+installed on the computer (platform D-028, D-013): the runtime in
+`<estate>\runtime\postgresql\17`, one cluster in `<estate>\data\postgres\17`,
+listening on 127.0.0.1 port 5433, with this application's own role
+`pacelab_app` and databases `pacelab` and `pacelab_test`. `pg.env` beside the
+data folder carries `PGPORT=5433`; with PGHOST and PGPORT empty the
+application uses 127.0.0.1:5433 anyway. When the driver is pgsql,
+`START HERE.bat` (and the logon and Desktop shortcuts) start the
+cluster unless it runs, and `STOP SERVER.bat` stops it with a fast, clean
+shutdown unless another application is still connected; run it before
+unplugging the drive. Both go through `tools\estate-pg.ps1`, which runs the
+estate's `estate-pg.js` when a Node exists and the same `pg_ctl` steps when it
+does not. The cluster itself is created once by `node estate-pg.js init`
+(the PRI Suite session), never by this application. There is no API server:
+the pages connect to the cluster directly; an API tier is for Radiant later.
+
+**The schema.** `install.php` builds it from `migrations/*.pgsql.sql` when the
+role may create tables, records each file in `schema_migrations`, then seeds
+and creates the first administrator as on SQLite. Where the database
+administrator keeps schema changes to an owner role, run the migration as that
+role first, from the source folder:
+
+```bash
+php tools/migrate.php --pg live --status           # what is pending
+php tools/migrate.php --pg live --owner-approved   # apply it
+```
+
+`install.php` then finds nothing pending and only seeds. It refuses to run
+over a database that already holds administrators, lock file or not.
+
+**Moving existing data.** From the source folder, with the application
+stopped, load the SQLite database and let the loader prove the copy:
+
+```bash
+php tools/pg-load.php --source <lab.sqlite> --target live --replace --owner-approved
+```
+
+It snapshots the source with `VACUUM INTO`, copies every table with its
+original ids in one transaction, moves every sequence past the highest id,
+and compares every row field by field and by checksum. Anything but
+`VERIFIED: ...` means do not switch.
+
+**Backups.** `pg_dump -Fc` nightly, kept off the server (Taiga), and a restore
+actually performed before the first one is trusted. On the drive copy
+`tools/backup.ps1` does this itself once the driver is PostgreSQL (through
+`tools/pg-backup.php`: dump, `pg_restore --list`, restore into the test
+database, compare row counts), and `BACK UP NOW.bat` runs the drill.
+
+**Health.** `health.php?db=1` answers `{"db":"ok"}` when PostgreSQL answers
+and 503 when it does not.
+
+**Going back.** Unset `PACELAB_DRIVER` (or `set databaseDriver sqlite`). The
+SQLite file is untouched by the switch, so it holds the data as it was at the
+moment of switching; anything written on PostgreSQL since then stays there.
+
+## Who signs in (NetID, decision D-015)
+
+On Radiant nobody types a password into this application. The university's
+authenticating proxy verifies the person and passes their address in
+`X-Forwarded-Email` (their NetID at illinois.edu) and, when configured, their
+campus groups in `X-Forwarded-Groups`. The container image sets
+`PACELAB_AUTH_MODE=proxy`. The application must be reachable only through the
+proxy: never publish its port, and set `PACELAB_TRUSTED_PROXIES` to the proxy's
+addresses once NCSA names them. The other settings (`PACELAB_IDENTITY_HEADER`,
+`PACELAB_IDENTITY_DOMAINS`, `PACELAB_GROUPS_HEADER`, `PACELAB_UNLISTED_ROLE`) are
+listed with their defaults in `env.template.txt`.
+
+What a NetID may do comes from the `role_grants` table (migration 0003):
+`member` (a laboratory's screens; with a laboratory named, membership of it),
+`admin` (the administrative panel) or `code_editor` (the panel and the Studio),
+granted to a NetID or to a campus group. Seed the first administrator from the
+command line, then use Administration, Administrators:
+
+    php tools/migrate.php --pg live --owner-approved            (as <app>_owner; applies 0003)
+    php tools/roles.php --pg live grant group:<admin group> admin --owner-approved
+    php tools/roles.php --pg live grant <netid> code_editor --owner-approved
+    php tools/roles.php --pg live list
+
+The grants need rows only, so `tools/roles.php` runs as `<app>_app`, once
+`<app>_app` holds SELECT, INSERT and UPDATE on `role_grants` and USAGE on its
+sequence. `Migration/03_grants.sql` grants every existing table; its default
+privileges cover only tables created by the role that ran it, so run the move's
+grant step (or 03_grants.sql, with the role names for Radiant) after migration
+0003, unless `<app>_owner` has set default privileges for its own tables. Without the proxy header every page
+answers 401; a NetID without the administrator role gets 403 on the panel.
 
 ## The Studio: fixing the application without a code editor
 
@@ -150,7 +300,8 @@ If hosting policy does not allow it at all, delete `admin/studio.php` and
 The approved Illinois header and footer are web components loaded from
 Illinois-run hosts:
 
-- `https://cdn.toolkit.illinois.edu/3/toolkit.css` and `toolkit.js`
+- `https://cdn.toolkit.illinois.edu/3.14.0/toolkit.css` and `toolkit.js`, pinned
+  to that version so an upstream release cannot change the chrome unannounced
 - `https://use.typekit.net/etc1rtr.css` (the campus typefaces)
 
 Nothing else leaves the server. If those hosts are unreachable, the application

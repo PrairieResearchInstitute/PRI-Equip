@@ -1,0 +1,62 @@
+# Copy to .dockerignore in a PHP web application (drez-containerize skill, PHP track).
+# The PHP Dockerfile copies the whole folder, so this list is the only thing
+# keeping data, written configuration and secrets out of the image.
+# In .dockerignore "*.db" matches only at the top of the folder; "**/*.db"
+# matches at any depth. Keep the "**/" on every file pattern.
+.git
+.github
+reference
+data
+backups
+logs
+tools/php
+tests
+.claude
+**/*.db
+**/*.sqlite
+**/*.sqlite-wal
+**/*.sqlite-shm
+**/*.sqlite3
+**/*.mdf
+**/*.ldf
+**/*.bak
+**/config.php
+**/config.local.php
+**/.installed
+**/*.env
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+**/*-DESKTOP-*
+**/*.docx
+**/*.pdf
+**/*.xlsx
+**/config.local.json
+**/config.local.json.tmp
+.cache
+dist
+Migration
+# Apache serves every file under the document root, so nothing but the
+# application may enter the image (found in the build rehearsal, 2026-10-13):
+# agent notes, handoffs, Windows launchers and the demo seeder stay out.
+# tools/migrate.php, roles.php, pg-*.php stay for docker exec; each refuses a
+# web request. tools/config.php has no such guard and only edits
+# config.local.json, which the image never holds.
+docs
+scripts
+**/*.md
+**/*.bat
+**/*.vbs
+**/*.ps1
+tools/check.js
+tools/config.php
+seed-demo.php
+hardcoded-allow.json
+env.template.txt
+config.template.json
+Dockerfile
+compose.yaml
+.dockerignore
+.gitignore
+.gitattributes

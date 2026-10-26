@@ -5,6 +5,8 @@
  *
  * Every page in the application requires this one file, which pulls in the
  * database handle and the identity functions behind it.
+ *
+ * Developed by M. J. Dreslik, with Claude Opus 5 (drez-ui-elements rule 27).
  */
 
 declare(strict_types=1);
@@ -22,12 +24,51 @@ date_default_timezone_set('America/Chicago');
  * to the server error log, where the web person can read it; the visitor gets a
  * sentence. PRI Facilities does the same thing in its lib/fail.php.
  */
+/**
+ * The one shell for a page that cannot use the stylesheet.
+ *
+ * The exception page, the fallback after the headers have gone out and
+ * auth_stop() all land here, so a refusal and a crash look like the same
+ * application rather than three different ones (PCE-25). The tokens are
+ * inline because the reason for the page may be that nothing else loaded;
+ * the favicon is linked because the browser tab should still say which
+ * application this is.
+ */
+function error_shell(string $title, string $bodyHtml): string
+{
+    $icon = '';
+    try {
+        if (function_exists('base_url')) {
+            $base = base_url();
+            $icon = '<link rel="icon" href="' . htmlspecialchars($base . 'assets/favicon.svg', ENT_QUOTES, 'UTF-8')
+                  . '" type="image/svg+xml">';
+        }
+    } catch (Throwable $ignored) {
+        $icon = '';
+    }
+
+    return '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
+         . '<meta name="viewport" content="width=device-width, initial-scale=1">'
+         . '<title>' . htmlspecialchars($title, ENT_QUOTES, 'UTF-8') . '</title>'
+         . $icon
+         . '<style>:root{--ink:#1a1a1a;--paper:#f5f4f1;--ink-soft:#5b5750;--accent:#13294b}'
+         . 'body{font:16px/1.55 Georgia,"Times New Roman",serif;margin:0;padding:3rem 1.25rem;'
+         . 'color:var(--ink);background:var(--paper)}'
+         . 'main{max-width:34rem;margin:0 auto}'
+         . 'h1{font-size:1.5rem;line-height:1.25;margin:0 0 .5rem}'
+         . 'p{color:var(--ink-soft);margin:0 0 1rem}'
+         . 'a{color:var(--accent)}</style></head><body><main>'
+         . $bodyHtml
+         . '</main></body></html>';
+}
+
 set_exception_handler(function (Throwable $e): void {
     error_log('Lab equipment system: ' . get_class($e) . ': ' . $e->getMessage()
         . ' in ' . $e->getFile() . ':' . $e->getLine());
 
     if (headers_sent()) {
-        echo '<p style="font:15px system-ui;margin:1rem">Something went wrong and this page stopped part way. '
+        // Part of a page is already on the wire, so only the words are left.
+        echo '<p>Something went wrong and this page stopped part way. '
            . 'Nothing was saved. Reload, and tell the web person if it happens again.</p>';
         exit;
     }
@@ -46,15 +87,11 @@ set_exception_handler(function (Throwable $e): void {
     }
 
     header('Content-Type: text/html; charset=UTF-8');
-    echo '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
-       . '<title>Something went wrong</title>'
-       . '<style>body{font:16px/1.5 Georgia,serif;margin:3rem auto;max-width:34rem;padding:0 1rem;color:#1a1a1a}'
-       . 'h1{font-size:1.4rem}p{color:#5b5750}</style></head><body>'
-       . '<h1>Something went wrong</h1>'
-       . '<p>The page stopped before it finished, and nothing was saved. Try again in a moment.</p>'
-       . '<p>If it keeps happening, tell the web person: the detail is in the server error log, '
-       . 'with the time stamp of this attempt.</p>'
-       . '</body></html>';
+    echo error_shell('Error',
+        '<h1>Error</h1>'
+      . '<p>The page stopped before it finished, and nothing was saved. Try again in a moment.</p>'
+      . '<p>If it keeps happening, tell the web person: the detail is in the server error log, '
+      . 'with the time stamp of this attempt.</p>');
     exit;
 });
 
@@ -143,7 +180,7 @@ function set_setting(string $key, string $value): void
         );
         return;
     }
-    db_run('INSERT OR REPLACE INTO settings ("key", value) VALUES (?, ?)', [$key, $value]);
+    db_run('INSERT OR REPLACE INTO settings ("key", value) VALUES (?, ?)', [$key, $value]); // dialect-ok: SQLite branch; the pgsql branch above uses ON CONFLICT DO UPDATE
 }
 
 // ---------------------------------------------------------------------------
@@ -231,6 +268,10 @@ function require_installed(): void
     // the alternative is a column that only exists on fresh installations.
     require_once __DIR__ . '/schema.php';
     schema_migrate();
+
+    // The NetID modes (D-015) stop here when nobody is signed in; the password
+    // mode passes straight through.
+    auth_require_identity();
 }
 
 /**
@@ -241,9 +282,9 @@ function site_pages(): array
 {
     return [
         'home'     => ['Home',           'home.php'],
-        'entry'    => ['Use entry',      'index.php'],
+        'entry'    => ['Use Entry',      'index.php'],
         'schedule' => ['Calendar',       'schedule.php'],
-        'report'   => ['Billing report', 'report.php'],
+        'report'   => ['Billing Report', 'report.php'],
         'admin'    => ['Administration', 'admin/index.php'],
     ];
 }
@@ -252,9 +293,9 @@ function site_pages(): array
  * Where we are, as one of the hrefs in site_pages(), or '' for anything else.
  *
  * The distinction that matters is page, not section: the administrative
- * overview is one of nine screens behind it, so standing on Equipment the
- * useful thing a menu can offer is the way back to the overview. Only the exact
- * page you are looking at is worth leaving out.
+ * screens all stand behind the overview, so on Equipment the useful thing a
+ * menu can offer is the way back to that overview. Only the exact page you are
+ * looking at is worth leaving out.
  */
 /**
  * Where to send somebody once they have said who they are.
@@ -319,7 +360,7 @@ function page_header(string $title, array $options = []): void
     // laboratory. The laboratory dashboard is titled after the laboratory, so
     // saying it twice reads as a mistake; there, and anywhere without a
     // laboratory yet, the application's own name is the more useful second half.
-    $qualifier = ($lab !== '' && $lab !== $title) ? $lab : setting('lab_name', 'Shared Laboratory Equipment');
+    $qualifier = ($lab !== '' && $lab !== $title) ? $lab : setting('app_name', 'PRI Shared Equipment');
     $tabTitle  = $qualifier !== '' && $qualifier !== $title
         ? $title . ' · ' . $qualifier
         : $title;
@@ -333,13 +374,32 @@ function page_header(string $title, array $options = []): void
 <!-- The approved Illinois web theme. Both files come from Illinois-run hosts.
      See the README: this is the one outside dependency in the application, and
      the campus network reaches it. -->
-<link rel="stylesheet" href="https://cdn.toolkit.illinois.edu/3/toolkit.css">
-<script type="module" src="https://cdn.toolkit.illinois.edu/3/toolkit.js"></script>
+<?php /* Pinned, not the floating /3/ path: an upstream release would otherwise
+         change the chrome of every screen without anybody here deciding to.
+         3.14.0 was byte-identical to what /3/ served on 2026-10-17, so pinning
+         changed nothing on the day (PCE-33, D-019). Raising it is a decision. */ ?>
+<link rel="stylesheet" href="https://cdn.toolkit.illinois.edu/3.14.0/toolkit.css">
+<script type="module" src="https://cdn.toolkit.illinois.edu/3.14.0/toolkit.js"></script>
 <link rel="stylesheet" href="https://use.typekit.net/etc1rtr.css">
 
 <link rel="stylesheet" href="<?= h($base) ?>assets/style.css">
+<link rel="icon" href="<?= h($base) ?>assets/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="<?= h($base) ?>assets/favicon.ico" sizes="any">
 </head>
-<body class="<?= h($options['bodyClass'] ?? '') ?>">
+<?php
+/*
+ * The width of the page is carried on <body>, not only on <main>, because the
+ * breadcrumbs and the laboratory bar sit outside <main> and have to line up
+ * with it. Before this they were pinned at 1180px and hung off the edge of a
+ * narrow page and fell short on a wide one (PCE-24).
+ */
+$mainClass = (string) ($options['mainClass'] ?? 'page');
+$widthClass = '';
+if (strpos($mainClass, 'narrow') !== false)    { $widthClass = 'width-narrow'; }
+elseif (strpos($mainClass, 'wide') !== false)  { $widthClass = 'width-wide'; }
+$bodyClass = trim(((string) ($options['bodyClass'] ?? '')) . ' ' . $widthClass);
+?>
+<body class="<?= h($bodyClass) ?>">
 
 <?php if (empty($options['chromeless'])): ?>
 <header>
@@ -352,7 +412,7 @@ function page_header(string $title, array $options = []): void
     <a slot="primary-unit" href="<?= h(setting('unit_url', 'https://inhs.illinois.edu')) ?>" target="_blank"
        aria-label="<?= h(setting('unit_name', 'Illinois Natural History Survey')) ?>, opens a new window"><?= h(setting('unit_name', 'Illinois Natural History Survey')) ?></a>
 
-    <a slot="site-name" href="<?= h($base) ?>home.php"><?= h(setting('app_name', 'Shared Equipment')) ?></a>
+    <a slot="site-name" href="<?= h($base) ?>home.php"><?= h(setting('app_name', 'PRI Shared Equipment')) ?></a>
 
     <nav slot="links" class="il-links" aria-label="Utility">
       <ul>
@@ -448,10 +508,11 @@ function page_header(string $title, array $options = []): void
 /**
  * Close the page with the approved PRI footer.
  *
- * This is the flagship site's footer with the public-website columns removed:
- * an internal billing tool has no use for the publications and collaborators
- * menus or the social icons. The institute identity, the address block, and
- * the five surveys are kept as they are served on prairie.illinois.edu.
+ * This is the flagship site's footer with most of the public-website columns
+ * removed: an internal billing tool has no use for the publications menu or
+ * the social icons. What stays is the institute identity, the address block,
+ * the Find Collaborators column and the five surveys, as they are served on
+ * prairie.illinois.edu.
  */
 function page_footer(array $options = []): void
 {
@@ -471,7 +532,7 @@ function page_footer(array $options = []): void
 
     <address slot="address">
       <p>1816 South Oak Street<br>MC-652<br>Champaign, IL 61820</p>
-      <p>Email: <a href="mailto:info@inhs.illinois.edu">info@inhs.illinois.edu</a></p>
+      <p>Email: <a href="mailto:configure-me@example.edu">configure-me@example.edu</a></p>
       <p>Phone: <a href="tel:+12173336880">217-333-6880</a></p>
       <p><a class="small" href="https://staff.prairie.illinois.edu/" target="_blank"
             aria-label="Staff login, opens a new window">Staff login</a></p>
@@ -488,7 +549,7 @@ function page_footer(array $options = []): void
       </nav>
 
       <nav class="ilw-footer-menu" aria-labelledby="footer-menu-app">
-        <h2 id="footer-menu-app"><?= h(setting('app_name', 'Shared Equipment')) ?></h2>
+        <h2 id="footer-menu-app"><?= h(setting('app_name', 'PRI Shared Equipment')) ?></h2>
         <ul>
 <?php foreach (site_pages() as [$label, $href]): ?>
           <li><a href="<?= h($base . $href) ?>"><?= h($label) ?></a></li>
@@ -498,8 +559,14 @@ function page_footer(array $options = []): void
       </nav>
     </ilw-columns>
   </ilw-footer>
+  <!-- The authorship credit sits in the application's own footer area, outside
+       the toolkit markup (drez-ui-elements rule 27; tools/check.js looks for it). -->
+  <p class="app-credit">Developed by M. J. Dreslik, with Claude Opus 5</p>
 </footer>
 <?php endif; ?>
+<!-- Every page: the application's own ask, confirm and tell, and the handler
+     that turns data-confirm on a form into a question (Q-27). -->
+<script src="<?= h($base . 'assets/dialog.js') ?>"></script>
 <?php foreach (($options['scripts'] ?? []) as $script): ?>
 <script src="<?= h($base . $script) ?>"></script>
 <?php endforeach; ?>
@@ -508,22 +575,71 @@ function page_footer(array $options = []): void
 <?php
 }
 
+/**
+ * Ask the question on a page of its own, then stop.
+ *
+ * The browser normally asks it in a dialog (assets/dialog.js) and posts again
+ * with confirmed=1. With JavaScript off or blocked there is no dialog, so the
+ * post arrives without that flag and the handler sends the person here
+ * instead of acting. Nothing has been written when this runs.
+ *
+ * $fields is what to post again, usually $_POST: the CSRF token is dropped
+ * and a fresh one issued, because the posted one may be a round old by then.
+ */
+function confirm_page(string $title, string $question, string $okLabel,
+                      array $fields, string $cancelHref, bool $danger = false): void
+{
+    page_header($title, ['mainClass' => 'page narrow']);
+    echo '<h1>' . h($title) . '</h1>';
+    echo '<form method="post" class="card form">';
+    echo csrf_field();
+    echo '<p>' . h($question) . '</p>';
+
+    foreach ($fields as $name => $value) {
+        if ($name === 'csrf_token' || $name === 'confirmed' || !is_scalar($value)) {
+            continue;
+        }
+        echo '<input type="hidden" name="' . h((string) $name) . '" value="' . h((string) $value) . '">';
+    }
+    echo '<input type="hidden" name="confirmed" value="1">';
+
+    echo '<div class="form-actions">';
+    echo '<a class="link-quiet" href="' . h($cancelHref) . '">Cancel</a>';
+    echo '<button type="submit" class="button' . ($danger ? ' button-danger' : '') . '">'
+       . h($okLabel) . '</button>';
+    echo '</div></form>';
+
+    page_footer();
+    exit;
+}
+
+/**
+ * True when a destructive post still needs its question answered.
+ *
+ * The dialog adds confirmed=1 before it submits; a post without it has not
+ * been confirmed by anybody.
+ */
+function needs_confirmation(): bool
+{
+    return empty($_POST['confirmed']);
+}
+
 /** The administrative panel's own navigation. */
 function admin_pages(): array
 {
     return [
-        'index'        => ['Overview',      'index.php'],
-        'labs'         => ['Laboratories',  'labs.php'],
-        'equipment'    => ['Equipment',     'equipment.php'],
-        'grants'       => ['Grants',        'grants.php'],
-        'units'        => ['Units',         'units.php'],
-        'records'      => ['Usage records', 'records.php'],
-        'costs'        => ['Running costs','costs.php'],
-        'reservations' => ['Reservations',  'reservations.php'],
-        'batches'      => ['Export history','batches.php'],
-        'emails'       => ['Message log',   'emails.php'],
-        'settings'     => ['Interface text','settings.php'],
-        'users'        => ['Administrators','users.php'],
+        'index'        => ['Overview',       'index.php'],
+        'labs'         => ['Laboratories',   'labs.php'],
+        'equipment'    => ['Equipment',      'equipment.php'],
+        'grants'       => ['Grants',         'grants.php'],
+        'units'        => ['Units',          'units.php'],
+        'records'      => ['Usage Records',  'records.php'],
+        'costs'        => ['Running Costs',  'costs.php'],
+        'reservations' => ['Reservations',   'reservations.php'],
+        'batches'      => ['Export History', 'batches.php'],
+        'emails'       => ['Message Log',    'emails.php'],
+        'settings'     => ['Interface Text', 'settings.php'],
+        'users'        => ['Administrators', 'users.php'],
         'studio'       => ['Studio',         'studio.php'],
     ];
 }
@@ -617,7 +733,7 @@ function log_email(array $message): int
             'status'       => ($message['to'] ?? '') === '' ? 'no_recipient' : 'composed',
         ]
     );
-    return (int) db()->lastInsertId();
+    return (int) db_last_id();
 }
 
 /** Note that the mail client was actually opened with a message. */
@@ -678,7 +794,7 @@ function mailto_link(string $to, string $subject, array $bodyLines, string $cc =
 }
 
 /**
- * The message that goes to the equipment person when an instrument is retired
+ * The message that goes to the equipment person when equipment is retired
  * or goes out of service. Composed once, at the moment it happens, so what gets
  * logged is exactly what gets opened.
  *
@@ -708,7 +824,7 @@ function compose_equipment_email(array $item, string $kind): array
     $body[] = '';
     $body[] = $kind === 'down'
         ? $item['name'] . ' has been marked out of service in ' . $lab . '.'
-        : $item['name'] . ' has been retired in ' . $lab . '. It no longer appears in the booking or charging lists.';
+        : $item['name'] . ' has been retired in ' . $lab . '. It no longer appears in the reservation or charging lists.';
     $body[] = '';
 
     if (trim((string) $item['status_note']) !== '') {
@@ -716,13 +832,13 @@ function compose_equipment_email(array $item, string $kind): array
         $body[] = '';
     }
 
-    $body[] = 'Instrument details';
+    $body[] = 'Equipment details';
     $body[] = '  University inventory number: ' . ($item['property_tag'] ?: 'none recorded');
     $body[] = '  Make and model: ' . (trim($item['manufacturer'] . ' ' . $item['model']) ?: 'not recorded');
     $body[] = '  Location: ' . ($item['location'] ?: 'not recorded');
     $body[] = '  Responsible person: ' . ($item['contact_person'] ?: 'not recorded');
     $body[] = '  Rate at this point: ' . money($item['rate']) . ' ' . $item['rate_unit'];
-    $body[] = '  Receiving account: ' . ($item['receiving_subaccount'] ?: 'not recorded');
+    $body[] = '  Receiving subaccount: ' . ($item['receiving_subaccount'] ?: 'not recorded');
     $body[] = '';
     $body[] = 'Use to date';
     $body[] = '  Charges recorded: ' . $charges;
@@ -735,14 +851,14 @@ function compose_equipment_email(array $item, string $kind): array
 
     if ($upcoming > 0) {
         $body[] = '';
-        $body[] = 'NOTE: ' . $upcoming . ' booking' . ($upcoming === 1 ? '' : 's')
-            . ' still stand' . ($upcoming === 1 ? 's' : '') . ' on this instrument. '
+        $body[] = 'NOTE: ' . $upcoming . ' reservation' . ($upcoming === 1 ? '' : 's')
+            . ' still stand' . ($upcoming === 1 ? 's' : '') . ' on this equipment. '
             . 'Whoever holds that time has not been told.';
     }
 
     $body[] = '';
     $body[] = $kind === 'down'
-        ? 'Nothing has been deleted. The instrument keeps its rate, its account, and its charge history, and it can be put back in service from the administrative panel.'
+        ? 'Nothing has been deleted. The equipment keeps its rate, its account, and its charge history, and it can be put back in service from the administrative panel.'
         : 'Nothing has been deleted. Every past charge is intact and still appears on the billing report.';
     $body[] = '';
     $body[] = 'Recorded by ' . admin_display_name() . ' on ' . date('F j, Y \a\t g:i a') . '.';
@@ -759,7 +875,7 @@ function compose_equipment_email(array $item, string $kind): array
 }
 
 /**
- * The laboratory group: everybody who books and charges instruments.
+ * The laboratory group: everybody who books and charges equipment.
  * Belongs to the laboratory, not to the installation — each has its own people.
  */
 function lab_group(?array $lab = null): array
@@ -772,11 +888,11 @@ function lab_group(?array $lab = null): array
 }
 
 /**
- * The message that goes to the whole laboratory when an instrument goes down.
+ * The message that goes to the whole laboratory when equipment goes down.
  *
  * A different audience from the equipment person, so a different message. They
  * do not need the purchase history; they need to know their afternoon has just
- * changed. It names whoever is holding time on the instrument, because those
+ * changed. It names whoever is holding time on the equipment, because those
  * are the people the news actually lands on.
  */
 function compose_lab_group_email(array $item, string $kind): array
@@ -793,7 +909,7 @@ function compose_lab_group_email(array $item, string $kind): array
     );
 
     // Alternatives from this laboratory only. Pointing somebody at an
-    // instrument in a laboratory they cannot book is worse than saying nothing.
+    // equipment in a laboratory they cannot book is worse than saying nothing.
     $alternatives = db_all(
         "SELECT name, location, rate, rate_unit FROM equipment
           WHERE lab_id = ? AND active = 1 AND status = 'available'
@@ -803,7 +919,7 @@ function compose_lab_group_email(array $item, string $kind): array
     );
 
     $subject = ($kind === 'down' ? 'Out of service: ' : 'Retired: ') . $item['name']
-        . ' — ' . $lab;
+        . ', ' . $lab;
 
     $body = [];
     $body[] = 'All,';
@@ -824,15 +940,15 @@ function compose_lab_group_email(array $item, string $kind): array
 
     if ($affected) {
         $body[] = '';
-        $body[] = 'Bookings affected';
-        foreach ($affected as $booking) {
-            $body[] = '  ' . date('D j M, g:i a', strtotime($booking['start_datetime']))
-                . ' to ' . date('g:i a', strtotime($booking['end_datetime']))
-                . '  —  ' . ($booking['reserved_by'] ?: 'unnamed')
-                . ($booking['purpose'] ? ' (' . $booking['purpose'] . ')' : '');
+        $body[] = 'Reservations affected';
+        foreach ($affected as $reservation) {
+            $body[] = '  ' . date('D j M, g:i a', strtotime($reservation['start_datetime']))
+                . ' to ' . date('g:i a', strtotime($reservation['end_datetime']))
+                . '  ·  ' . ($reservation['reserved_by'] ?: 'unnamed')
+                . ($reservation['purpose'] ? ' (' . $reservation['purpose'] . ')' : '');
         }
         $body[] = '';
-        $body[] = 'Those bookings have NOT been cancelled. If one is yours, please move or cancel it.';
+        $body[] = 'Those reservations have NOT been cancelled. If one is yours, please move or cancel it.';
     } else {
         $body[] = '';
         $body[] = 'Nobody currently holds time on it.';
@@ -840,11 +956,11 @@ function compose_lab_group_email(array $item, string $kind): array
 
     if ($alternatives) {
         $body[] = '';
-        $body[] = 'Other instruments of the same kind';
+        $body[] = 'Other equipment of the same kind';
         foreach ($alternatives as $alt) {
             $body[] = '  ' . $alt['name']
                 . ($alt['location'] ? ', ' . $alt['location'] : '')
-                . '  —  ' . money($alt['rate']) . ' ' . $alt['rate_unit'];
+                . '  ·  ' . money($alt['rate']) . ' ' . $alt['rate_unit'];
         }
     }
 
@@ -864,7 +980,7 @@ function compose_lab_group_email(array $item, string $kind): array
     ];
 }
 
-/** The person a laboratory tells when one of its instruments is retired. */
+/** The person a laboratory tells when one of its equipment is retired. */
 function equipment_contact(?array $lab = null): array
 {
     $lab = $lab ?? current_lab();
@@ -879,7 +995,7 @@ function equipment_contact(?array $lab = null): array
 // Laboratories
 //
 // The application serves several laboratories from one installation. A
-// laboratory owns its instruments, its grants, its bookings, its charges and
+// laboratory owns its equipment, its grants, its reservations, its charges and
 // its costs; nothing crosses between them. Which laboratory you are looking at
 // is a session choice, exactly as identity is, and every query that touches
 // owned data is scoped by it.
@@ -928,13 +1044,22 @@ function labs_for_person(?string $name = null): array
         return [];
     }
 
-    return db_all(
+    $listed = db_all(
         'SELECT l.* FROM labs l
            JOIN lab_members m ON m.lab_id = l.lab_id
           WHERE l.active = 1 AND m.person_key = ?
           ORDER BY lower(l.name)',
         [$key]
     );
+
+    // The NetID modes add the laboratories a member grant gives the NetID or
+    // one of its groups (D-015, includes/roles.php). Empty in the password mode.
+    $granted = auth_granted_lab_ids($name === null ? null : $key);
+    if (!$granted) {
+        return $listed;
+    }
+    $ids = array_merge(array_map('intval', array_column($listed, 'lab_id')), $granted);
+    return array_values(array_filter(labs(), static fn ($lab) => in_array((int) $lab['lab_id'], $ids, true)));
 }
 
 /** True when this person may work in this laboratory. */
@@ -1017,24 +1142,26 @@ function require_lab(): array
         redirect($base . 'index.php?next=' . rawurlencode(current_page_href()));
     }
 
-    page_header('No laboratory', ['nav' => '', 'mainClass' => 'page narrow']);
-    echo '<h1>You are not in a laboratory yet</h1>';
+    page_header('No Laboratory Assigned', ['nav' => '', 'mainClass' => 'page narrow']);
+    echo '<h1>No Laboratory Assigned</h1>';
     echo '<p class="lede">'
        . h(current_user_name() ?: 'You')
-       . ' has not been added to any laboratory, so there are no instruments to show.</p>';
+       . ' has not been added to any laboratory, so there are no equipment to show.</p>';
     echo '<p>An administrator adds people to a laboratory under Administration, '
        . 'Laboratories. Ask whoever looks after yours.</p>';
-    echo '<p><a class="button button-secondary" href="' . h($base) . 'index.php?switch_user=1">'
-       . 'Use a different name</a></p>';
+    if (identity_is_self_declared()) {
+        echo '<p><a class="button button-secondary" href="' . h($base) . 'index.php?switch_user=1">'
+           . 'Use a different name</a></p>';
+    }
     page_footer();
     exit;
 }
 
 // ---------------------------------------------------------------------------
-// Whether an instrument can be used
+// Whether equipment can be used
 //
 // Four states, and only two questions really matter: can somebody book time on
-// it, and can somebody charge a run to it. An instrument that is down fails
+// it, and can somebody charge a run to it. Equipment that is down fails
 // both while keeping everything else — its rate, its account, its history.
 // Service due is a warning, not a bar: work continues, somebody just needs to
 // arrange the service.
@@ -1046,14 +1173,14 @@ function equipment_is_usable(array $item): bool
     return in_array($item['status'] ?? 'available', ['available', 'service_due'], true);
 }
 
-/** True when an instrument is out of service. */
+/** True when equipment is out of service. */
 function equipment_is_down(array $item): bool
 {
     return ($item['status'] ?? '') === 'down';
 }
 
 /**
- * Why an instrument cannot be used, as a sentence, or null when it can.
+ * Why equipment cannot be used, as a sentence, or null when it can.
  * The same wording appears wherever the refusal happens.
  */
 function equipment_unusable_reason(array $item): ?string
@@ -1074,11 +1201,11 @@ function equipment_unusable_reason(array $item): ?string
 }
 
 // ---------------------------------------------------------------------------
-// How hard an instrument is working
+// How hard equipment is working
 //
 // Booked hours over the hours it could have been booked. The denominator is a
 // setting rather than the twenty-four hours the calendar draws, because an
-// instrument nobody can reach at three in the morning is not idle at three in
+// equipment nobody can reach at three in the morning is not idle at three in
 // the morning. Fifty hours is a working week with a little room either side.
 // ---------------------------------------------------------------------------
 
@@ -1089,7 +1216,7 @@ function equipment_utilisation(int $equipmentId, int $days = 0): array
     $from   = date('Y-m-d 00:00:00', strtotime('-' . $days . ' days'));
     $to     = date('Y-m-d H:i:s');
 
-    // Clip each booking to the window, so one long booking that started before
+    // Clip each reservation to the window, so one long reservation that started before
     // it does not count time outside it.
     $bookedSeconds = 0.0;
     $rows = db_all(
@@ -1120,7 +1247,7 @@ function equipment_utilisation(int $equipmentId, int $days = 0): array
         'capacity' => round($capacity, 1),
         'percent'  => $capacity > 0 ? (int) round($booked / $capacity * 100) : 0,
         'runs'     => $runs,
-        'bookings' => count($rows),
+        'reservations' => count($rows),
     ];
 }
 
@@ -1128,7 +1255,7 @@ function equipment_utilisation(int $equipmentId, int $days = 0): array
 // What is costing money, and what is earning it
 // ---------------------------------------------------------------------------
 
-/** Everything spent on an instrument, optionally within a window. */
+/** Everything spent on equipment, optionally within a window. */
 function equipment_cost_total(int $equipmentId, ?int $days = null): float
 {
     $sql    = 'SELECT COALESCE(SUM(amount), 0) FROM equipment_costs WHERE equipment_id = ?';
@@ -1140,7 +1267,7 @@ function equipment_cost_total(int $equipmentId, ?int $days = null): float
     return (float) db_value($sql, $params);
 }
 
-/** Everything charged out on an instrument, voided runs excluded. */
+/** Everything charged out on equipment, voided runs excluded. */
 function equipment_revenue_total(int $equipmentId, ?int $days = null): float
 {
     $sql    = 'SELECT COALESCE(SUM(total_charge), 0) FROM usage_records WHERE equipment_id = ? AND voided = 0';
@@ -1156,7 +1283,7 @@ function equipment_revenue_total(int $equipmentId, ?int $days = null): float
 // The alert list
 //
 // One list, ranked, so the thing that matters most is read first. A broken
-// instrument outranks an expiring warranty, which outranks an instrument
+// equipment outranks an expiring warranty, which outranks equipment
 // nobody has booked. Every alert carries a rank, a tone, and somewhere to go.
 // ---------------------------------------------------------------------------
 
@@ -1197,7 +1324,7 @@ function equipment_alerts(string $base = ''): array
                 'name'     => $item['name'],
                 'headline' => $item['name'] . ' is down'
                     . ($item['status_since'] ? ' since ' . pretty_date($item['status_since']) : '') . '.',
-                'detail'   => ($note !== '' ? $note . ' ' : '') . 'Not accepting bookings or charges.',
+                'detail'   => ($note !== '' ? $note . ' ' : '') . 'Not accepting reservations or charges.',
                 'href'     => $edit,
                 'action'   => 'Update status',
             ];
@@ -1305,7 +1432,7 @@ function equipment_alerts(string $base = ''): array
                 'tag'      => 'idle',
                 'name'     => $item['name'],
                 'headline' => $item['name'] . ' has not been used in ' . $use['days'] . ' days.',
-                'detail'   => 'No runs and ' . ($use['bookings'] === 0 ? 'no bookings' : $use['bookings'] . ' bookings')
+                'detail'   => 'No runs and ' . ($use['reservations'] === 0 ? 'no reservations' : $use['reservations'] . ' reservations')
                     . '. Worth advertising to other surveys, at ' . money($item['rate']) . ' ' . $item['rate_unit'] . '.',
                 'href'     => $base . 'admin/equipment.php?edit=' . $id,
                 'action'   => 'Check the rate',
@@ -1326,7 +1453,7 @@ function equipment_alerts(string $base = ''): array
                 'headline' => $item['name'] . ' has recovered ' . money($revenue) . ' of ' . money($costs)
                     . ' spent on it this year.',
                 'detail'   => 'Short by ' . money($costs - $revenue)
-                    . '. Either the rate is low or the instrument is under-used.',
+                    . '. Either the rate is low or the equipment is under-used.',
                 'href'     => $base . 'admin/costs.php?equipment_id=' . $id,
                 'action'   => 'See the costs',
             ];
@@ -1352,7 +1479,7 @@ function render_alerts(array $alerts, string $heading = 'Needs attention', int $
     $worst = $shown[0]['tone'];
 
     // Open when something is actually wrong. A list of opportunities can wait
-    // until somebody asks for it; a broken instrument cannot.
+    // until somebody asks for it; a broken equipment cannot.
     $urgent = in_array($worst, ['critical', 'warning'], true);
     $counts = [];
     foreach (['critical' => 'urgent', 'warning' => 'warning', 'notice' => 'to note', 'opportunity' => 'opportunity'] as $tone => $word) {
@@ -1395,7 +1522,7 @@ function render_alerts(array $alerts, string $heading = 'Needs attention', int $
     accordion_close();
 }
 
-/** Every instrument in the laboratory in view, retired ones included. */
+/** All the equipment in the laboratory in view, retired included. */
 function lab_equipment(bool $activeOnly = true): array
 {
     return db_all(
@@ -1406,18 +1533,18 @@ function lab_equipment(bool $activeOnly = true): array
     );
 }
 
-/** Active instruments, ordered for a dropdown. */
+/** Active equipment, ordered for a dropdown. */
 function active_equipment(): array
 {
     return lab_equipment(true);
 }
 
 /**
- * One instrument by id — but only if it belongs to the laboratory in view.
+ * One piece of equipment by id — but only if it belongs to the laboratory in view.
  *
  * This is the choke point that keeps laboratories apart. Every screen loads an
- * instrument through here, so an id typed into a URL cannot reach another
- * laboratory's instrument: the lookup simply finds nothing, and the caller
+ * equipment through here, so an id typed into a URL cannot reach another
+ * laboratory's equipment: the lookup simply finds nothing, and the caller
  * already handles nothing.
  */
 function equipment_by_id($id, bool $anyLab = false): ?array
@@ -1480,7 +1607,7 @@ function grants_for_date(string $useDate): array
 function grant_label(array $grant): string
 {
     $label = $grant['display_label'] ?: $grant['title'];
-    return $label . ' — ' . $grant['cfopa'];
+    return $label . ' · ' . $grant['cfopa'];
 }
 
 /**
@@ -1516,7 +1643,7 @@ function picklist_label(string $listKey, ?string $code): string
 }
 
 /**
- * The rate units an instrument may charge by. The three the arithmetic
+ * The rate units equipment may charge by. The three the arithmetic
  * understands are seeded and protected; the list is read rather than
  * hard-coded so a laboratory can add its own wording.
  */
@@ -1539,7 +1666,7 @@ function rate_units(): array
 //     │ └─────────────────────── Fund          six digits
 //     └───────────────────────── Chart         one digit, 1 for Urbana
 //
-// The activity segment is what makes a receiving account work: a self-supporting
+// The activity segment is what makes a receiving subaccount work: a self-supporting
 // fund carries one activity code per facility, which is how PRI already bills
 // its field stations. So the account a charge lands in and the account it comes
 // out of are both CFOPAs, and the activity segment is the part that differs.

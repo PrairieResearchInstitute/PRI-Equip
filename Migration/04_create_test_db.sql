@@ -1,6 +1,10 @@
+-- RETIRED for the test suite (2026-10-10, D-011): tests/run-tests.php now drops and
+-- rebuilds pacelab_test from migrations/*.pgsql.sql on every run, so the test database
+-- needs no TEMPLATE copy of the live one and no real rows. Kept for its history only.
+--
 -- Create pacelab_test as an exact duplicate of pacelab.
 --
---   psql -U postgres -h 127.0.0.1 -f Migration/04_create_test_db.sql
+--   <estate>\runtime\postgresql\17\bin\psql -U postgres -h 127.0.0.1 -p 5433 -f Migration/04_create_test_db.sql
 --
 -- TEMPLATE copies the whole database - schema, data, indexes, sequence
 -- positions - in one step, which is both faster and more faithful than

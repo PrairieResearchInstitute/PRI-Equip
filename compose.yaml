@@ -1,0 +1,71 @@
+# Test and live tiers of the PHP web application pacelab-equip from one image.
+# drez-app-move sets TEST_TAG and LIVE_TAG; LIVE_TAG must equal the manifest's
+# testedTag. Each tier's environment file sits beside this file on the server,
+# readable only by the service account, never in git. No published ports.
+#
+# The database is PostgreSQL on Radiant (<id>_test, <id>_live per D-008), so no
+# volume holds data. An app that keeps uploaded files gets a named volume per
+# tier; uncomment the two volume blocks and set the path the app writes.
+name: pacelab-equip
+
+# NCSA CA certificate (Radiant audit M3). With sslmode verify-full every service
+# that connects to PostgreSQL verifies the server certificate against pg-ca.crt,
+# the CA file the Radiant Move Guide copies beside this file, mounted read-only
+# at /run/secrets/pg-ca.crt. The start fails when pg-ca.crt is missing instead of
+# Docker creating an empty folder in its place.
+# The tier env files set PGSSLROOTCERT to that path (settings stay in env files,
+# never in an environment: block here); libpq under pdo_pgsql reads it and,
+# with PGSSLMODE verify-full, checks the certificate chain and the host name.
+x-pg-ca-volume: &pg-ca-volume
+  type: bind
+  source: ./pg-ca.crt
+  target: /run/secrets/pg-ca.crt
+  read_only: true
+  bind:
+    create_host_path: false
+
+services:
+  pacelab-equip-test:
+    image: pacelab-equip:${TEST_TAG:?set TEST_TAG to the tag printed by tag.js}
+    env_file:
+      - ./pacelab-equip-test.env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "php", "-r", "exit(@file_get_contents('http://127.0.0.1:8080/health.php?db=1') === false ? 1 : 0);"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    # volumes:
+    #   - pacelab-equip-test-uploads:/var/www/html/uploads
+    volumes:
+      - *pg-ca-volume
+    networks:
+      - proxy
+
+  pacelab-equip-live:
+    image: pacelab-equip:${LIVE_TAG:?set LIVE_TAG to the manifest testedTag}
+    env_file:
+      - ./pacelab-equip-live.env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "php", "-r", "exit(@file_get_contents('http://127.0.0.1:8080/health.php?db=1') === false ? 1 : 0);"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    # volumes:
+    #   - pacelab-equip-live-uploads:/var/www/html/uploads
+    volumes:
+      - *pg-ca-volume
+    networks:
+      - proxy
+
+# volumes:
+#   pacelab-equip-test-uploads:
+#   pacelab-equip-live-uploads:
+
+networks:
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK:-proxy}

@@ -20,6 +20,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = (string) ($_POST['action'] ?? '');
 
     if ($action === 'retire' || $action === 'restore') {
+        if (needs_confirmation()) {
+            confirm_page($action === 'retire' ? 'Retire Grant' : 'Restore Grant',
+                         $action === 'retire' ? 'Retire this grant?' : 'Restore this grant?',
+                         $action === 'retire' ? 'Retire' : 'Restore', $_POST, 'grants.php');
+        }
         $id  = (int) ($_POST['grant_id'] ?? 0);
         $row = grant_by_id($id);
         if ($row) {
@@ -152,9 +157,9 @@ admin_header('grants', 'Grants');
             <tr<?= ((int) $row['active'] === 0 || $expired) ? ' class="is-locked"' : '' ?>>
               <td>
                 <a href="?edit=<?= (int) $row['grant_id'] ?>"><?= h($row['display_label'] ?: $row['title']) ?></a>
-                <?php if ((int) $row['active'] === 0): ?><span class="pill">retired</span><?php endif; ?>
-                <?php if ($expired): ?><span class="pill pill-warn">expired</span><?php endif; ?>
-                <?php if ($future): ?><span class="pill pill-warn">not started</span><?php endif; ?>
+                <?php if ((int) $row['active'] === 0): ?><span class="pill">Retired</span><?php endif; ?>
+                <?php if ($expired): ?><span class="pill pill-error">Expired</span><?php endif; ?>
+                <?php if ($future): ?><span class="pill pill-warn">Not Started</span><?php endif; ?>
                 <?php if ($row['title'] && $row['title'] !== $row['display_label']): ?>
                   <p class="hint"><?= h($row['title']) ?></p>
                 <?php endif; ?>
@@ -169,7 +174,8 @@ admin_header('grants', 'Grants');
               </td>
               <td class="num"><?= (int) $row['charge_count'] ?></td>
               <td class="nowrap">
-                <form method="post" onsubmit="return confirm('<?= (int) $row['active'] === 1 ? 'Retire' : 'Restore' ?> this grant?');">
+                <form method="post" data-confirm="<?= (int) $row['active'] === 1 ? 'Retire' : 'Restore' ?> this grant?"
+                      data-confirm-ok="<?= (int) $row['active'] === 1 ? 'Retire' : 'Restore' ?>">
                   <?= csrf_field() ?>
                   <input type="hidden" name="grant_id" value="<?= (int) $row['grant_id'] ?>">
                   <input type="hidden" name="action" value="<?= (int) $row['active'] === 1 ? 'retire' : 'restore' ?>">
@@ -227,7 +233,7 @@ admin_header('grants', 'Grants');
         <option value="">&mdash;</option>
         <?php foreach ($units as $unit): ?>
           <option value="<?= (int) $unit['unit_id'] ?>" <?= (int) ($editing['unit_id'] ?? 0) === (int) $unit['unit_id'] ? 'selected' : '' ?>>
-            <?= h($unit['code']) ?><?= $unit['name'] ? ' — ' . h($unit['name']) : '' ?>
+            <?= h($unit['code']) ?><?= $unit['name'] ? ' · ' . h($unit['name']) : '' ?>
           </option>
         <?php endforeach; ?>
       </select>

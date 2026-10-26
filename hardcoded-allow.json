@@ -1,0 +1,92 @@
+[
+  {
+    "file": "FORGOT ADMIN PASSWORD.bat",
+    "match": "http://localhost:8080/admin/login.php",
+    "reason": "instruction text shown to the person after a password reset; names the local sign-in page"
+  },
+  {
+    "file": "api.php",
+    "match": "startKey = 'start'",
+    "reason": "names of JSON fields in a calendar request, not a secret"
+  },
+  {
+    "file": "api.php",
+    "match": "endKey = 'end'",
+    "reason": "names of JSON fields in a calendar request, not a secret"
+  },
+  {
+    "file": "includes/functions.php",
+    "match": "https://cdn.toolkit.illinois.edu/",
+    "reason": "Illinois web toolkit stylesheet and script for the campus page chrome; a public campus asset address, not a setting, pinned to 3.14.0 (D-019; owner question Q-04 covers offline use)"
+  },
+  {
+    "file": "includes/functions.php",
+    "match": "https://use.typekit.net/etc1rtr.css",
+    "reason": "Illinois brand web fonts for the campus page chrome; public asset address, not a setting (owner question Q-04)"
+  },
+  {
+    "file": "includes/functions.php",
+    "match": "https://inhs.illinois.edu",
+    "reason": "public footer link to the Illinois Natural History Survey"
+  },
+  {
+    "file": "includes/functions.php",
+    "match": "https://www.prairie.illinois.edu/",
+    "reason": "public footer link to the Prairie Research Institute"
+  },
+  {
+    "file": "includes/functions.php",
+    "match": "https://staff.prairie.illinois.edu/",
+    "reason": "public footer link to the PRI staff site"
+  },
+  {
+    "file": "includes/functions.php",
+    "match": "https://experts.illinois.edu/",
+    "reason": "public footer link to the INHS Illinois Experts page"
+  },
+  {
+    "file": "includes/functions.php",
+    "match": "https://www.ideals.illinois.edu/",
+    "reason": "public footer link to the INHS IDEALS collection"
+  },
+  {
+    "file": "includes/functions.php",
+    "match": "https://www.zotero.org/",
+    "reason": "public footer link to the PRI staff bibliography"
+  },
+  {
+    "file": "tests/run-tests.php",
+    "match": "https://evil.example.com/steal",
+    "reason": "test input: a hostile redirect target the suite proves is refused"
+  },
+  {
+    "file": "tools/start-server.ps1",
+    "match": "http://localhost:$",
+    "reason": "the local PHP server this script starts on this computer; the port is a variable"
+  },
+  {
+    "file": "tools/ensure-running.ps1",
+    "match": "http://localhost:$Port/",
+    "reason": "the local PHP server the supervisor runs on this computer; the port is a parameter"
+  },
+  {
+    "file": "tools/setup-machine.ps1",
+    "match": "http://localhost:8147/",
+    "reason": "message naming the local address of the supervisor's fixed port 8147"
+  },
+  {
+    "file": "scripts/readme.json",
+    "match": "http://localhost:8147/",
+    "reason": "README text naming the local address of the supervisor's fixed port 8147"
+  },
+  {
+    "file": "tools/check.js",
+    "match": "onedrive/i.test(info.dataDir)",
+    "reason": "the gate's test that the data folder is not inside OneDrive; not a path"
+  },
+  {
+    "file": "compose.yaml",
+    "match": "http://127.0.0.1:8080/health.php?db=1",
+    "reason": "the container health check calls health.php inside its own container on the fixed internal port 8080"
+  }
+]

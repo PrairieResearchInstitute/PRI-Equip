@@ -22,7 +22,10 @@ if (-not (Test-Path $php)) {
     $php    = Join-Path $phpDir 'php.exe'
 }
 
-$log = Join-Path $root 'data\server.log'
+# The data folder config.local.json names (data\ when it names none).
+. (Join-Path $PSScriptRoot 'paths.ps1')
+$dataDir = Get-LabDataDir
+$log = Join-Path $dataDir 'server.log'
 New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null
 
 function Note($msg) {
@@ -39,12 +42,13 @@ function Backup-IfDue {
     # One a day is enough. The marker is the newest backup's date, so a machine
     # that is off overnight still gets one the next time it is on.
     try {
-        $pathFile = Join-Path $root 'data\backup-path.txt'
-        $dest = if (Test-Path $pathFile) { (Get-Content $pathFile -Raw).Trim() }
-                else { Join-Path (Split-Path -Parent $root) 'PaCELab Equip Backups' }
+        $dest = Get-LabBackupDir
         $today = Get-Date -Format 'yyyy-MM-dd'
         if (Test-Path $dest) {
-            $have = Get-ChildItem $dest -Filter "lab-$today-*.sqlite" -ErrorAction SilentlyContinue
+            # lab-<date>-*.sqlite on SQLite, lab-<date>-*.pgdump on PostgreSQL
+            # (backup.ps1 hands PostgreSQL to pg-backup.php).
+            $have = Get-ChildItem $dest -Filter "lab-$today-*" -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Extension -in '.sqlite', '.pgdump' }
             if ($have) { return }
         }
         Note "taking the daily backup"
@@ -80,14 +84,28 @@ try {
         # this folder has a space in its name, so an unquoted -t split at the
         # space and php exited 1 immediately -- which looked exactly like the
         # server "not starting" for no reason.
+        # Sessions, uploaded-file staging and PHP's own temp go on the drive.
+        # A session file holds who is signed in, so leaving them in %TEMP% left
+        # application state on the computer (owner standard B, D-007).
+        $phpArgs = @(
+            '-c', ('"' + (Join-Path $phpDir 'php.ini') + '"'),
+            '-d', ('"extension_dir=' + (Join-Path $phpDir 'ext') + '"'))
+        $tmp = Get-LabTempDir
+        if ($tmp) {
+            New-Item -ItemType Directory -Force -Path $tmp | Out-Null
+            $phpArgs += @('-d', ('"session.save_path=' + $tmp + '"'),
+                          '-d', ('"upload_tmp_dir='   + $tmp + '"'),
+                          '-d', ('"sys_temp_dir='     + $tmp + '"'))
+        }
+        # tools\router.php refuses dotfiles (.env holds the PostgreSQL password),
+        # data, tools, tests and migrations: the built-in server reads neither
+        # .htaccess nor web.config, and without a router it serves /.env.
+        $phpArgs += @('-S', "localhost:$Port", '-t', ('"' + $root + '"'),
+                      ('"' + (Join-Path $PSScriptRoot 'router.php') + '"'))
+
         $p = Start-Process -FilePath $php -PassThru -WindowStyle Hidden `
-             -RedirectStandardError (Join-Path $root 'data\php-stderr.log') `
-             -ArgumentList @(
-                 '-c', ('"' + (Join-Path $phpDir 'php.ini') + '"'),
-                 '-d', ('"extension_dir=' + (Join-Path $phpDir 'ext') + '"'),
-                 '-S', "localhost:$Port",
-                 '-t', ('"' + $root + '"')
-             )
+             -RedirectStandardError (Join-Path $dataDir 'php-stderr.log') `
+             -ArgumentList $phpArgs
         Note "php started, pid $($p.Id)"
 
         # Wake hourly while php runs, so the supervisor can also be the thing

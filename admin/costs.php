@@ -1,9 +1,9 @@
 <?php
 /**
- * admin/costs.php — What each instrument costs to run.
+ * admin/costs.php — What each equipment costs to run.
  *
  * Consumables, repairs, parts, calibration, and the contracts that cover it,
- * set against what the instrument has earned. This is the screen that answers
+ * set against what the equipment has earned. This is the screen that answers
  * whether a rate is right: a recharge account is meant to recover its costs,
  * not to make money and not to quietly lose it.
  *
@@ -27,6 +27,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $costId = (int) ($_POST['cost_id'] ?? 0);
 
     if ($action === 'delete') {
+        if (needs_confirmation()) {
+            confirm_page('Remove Cost Entry', 'Remove this cost entry?', 'Remove', $_POST,
+                         'costs.php?equipment_id=' . (int) ($_POST['equipment_id'] ?? 0), true);
+        }
         $row = db_one('SELECT * FROM equipment_costs WHERE cost_id = ?', [$costId]);
         if ($row) {
             db_run('DELETE FROM equipment_costs WHERE cost_id = ?', [$costId]);
@@ -50,7 +54,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'notes'           => trim((string) ($_POST['notes'] ?? '')),
         ];
 
-        if (!equipment_by_id($data['equipment_id']))                  { $errors[] = 'Choose an instrument.'; }
+        if (!equipment_by_id($data['equipment_id']))                  { $errors[] = 'Choose equipment.'; }
         if (!$data['cost_date'])                                      { $errors[] = 'Give the date of the spend.'; }
         if ($data['description'] === '')                              { $errors[] = 'Say what the money went on.'; }
         if ($data['amount'] <= 0)                                     { $errors[] = 'The amount has to be more than nothing.'; }
@@ -111,7 +115,7 @@ if ($filterEquip) {
 $sql .= ' ORDER BY c.cost_date DESC, c.cost_id DESC LIMIT 300';
 $costs = db_all($sql, $params);
 
-/** Cost, revenue, and the gap between them, per instrument over the window. */
+/** Cost, revenue, and the gap between them, per equipment over the window. */
 function recovery_table(array $equipment, int $window): array
 {
     $rows = [];
@@ -143,11 +147,11 @@ $byCategory = db_all(
     [date('Y-m-d', strtotime('-' . $window . ' days'))]
 );
 
-admin_header('costs', 'Running costs');
+admin_header('costs', 'Running Costs');
 ?>
-<h1>Running costs</h1>
-<p class="lede">What each instrument costs to keep working, set against what it has earned.
-A recharge account is meant to recover its costs — no more, and no less.</p>
+<h1>Running Costs</h1>
+<p class="lede">What each equipment costs to keep working, set against what it has earned.
+A recharge account is meant to recover its costs, no more and no less.</p>
 
 <?php foreach ($errors as $error): ?>
   <div class="flash flash-error"><?= h($error) ?></div>
@@ -160,7 +164,7 @@ A recharge account is meant to recover its costs — no more, and no less.</p>
     <?php
       $spent  = array_sum(array_column($recovery, 'cost'));
       $earned = array_sum(array_column($recovery, 'revenue'));
-      accordion_open('costs-recovery', 'Cost recovery, last ' . (int) round($window / 30) . ' months', [
+      accordion_open('costs-recovery', 'Cost Recovery, Last ' . (int) round($window / 30) . ' months', [
           'open' => true,
           'tone' => $earned < $spent ? 'warning' : '',
           'meta' => money($spent) . ' spent · ' . money($earned) . ' earned',
@@ -170,7 +174,7 @@ A recharge account is meant to recover its costs — no more, and no less.</p>
         <table class="data">
           <thead>
             <tr>
-              <th>Instrument</th><th class="num">Spent</th><th class="num">Earned</th>
+              <th>Equipment</th><th class="num">Spent</th><th class="num">Earned</th>
               <th class="num">Recovered</th><th class="num">Gap</th><th class="num">Booked</th>
             </tr>
           </thead>
@@ -182,7 +186,7 @@ A recharge account is meant to recover its costs — no more, and no less.</p>
             <tr>
               <td>
                 <a href="?equipment_id=<?= (int) $row['item']['equipment_id'] ?>"><?= h($row['item']['name']) ?></a>
-                <?php if (equipment_is_down($row['item'])): ?><span class="pill pill-error">down</span><?php endif; ?>
+                <?php if (equipment_is_down($row['item'])): ?><span class="pill pill-error">Down</span><?php endif; ?>
               </td>
               <td class="num nowrap"><?= h(money($row['cost'])) ?></td>
               <td class="num nowrap"><?= h(money($row['revenue'])) ?></td>
@@ -198,13 +202,13 @@ A recharge account is meant to recover its costs — no more, and no less.</p>
           </tbody>
         </table>
       </div>
-      <p class="hint">Gap is what the instrument earned minus what was spent on it.
+      <p class="hint">Gap is what the equipment earned minus what was spent on it.
       A negative figure means the laboratory is subsidising it: either the rate is too low,
       or it is not being used enough to spread its costs.</p>
     <?php accordion_close(); ?>
 
     <?php if ($byCategory): ?>
-      <?php accordion_open('costs-breakdown', 'Where the money went', [
+      <?php accordion_open('costs-breakdown', 'Where the Money Went', [
           'meta' => count($byCategory) . ' categories',
       ]); ?>
         <ul class="cost-breakdown">
@@ -222,15 +226,15 @@ A recharge account is meant to recover its costs — no more, and no less.</p>
 
   <!-- The ledger ----------------------------------------------------------- -->
   <div>
-    <?php accordion_open('costs-ledger', 'Recorded costs', [
+    <?php accordion_open('costs-ledger', 'Recorded Costs', [
         'open' => true,
         'meta' => count($costs) . ' entries',
     ]); ?>
     <form method="get" class="report-filters">
       <div class="field">
-        <label for="equipment_id">Instrument</label>
+        <label for="equipment_id">Equipment</label>
         <select id="equipment_id" name="equipment_id">
-          <option value="">All instruments</option>
+          <option value="">All equipment</option>
           <?php foreach ($equipment as $item): ?>
             <option value="<?= (int) $item['equipment_id'] ?>" <?= $filterEquip === (int) $item['equipment_id'] ? 'selected' : '' ?>>
               <?= h($item['name']) ?>
@@ -246,15 +250,14 @@ A recharge account is meant to recover its costs — no more, and no less.</p>
           <?php endforeach; ?>
         </select>
       </div>
-      <button type="submit" class="button">Show</button>
+      <button type="submit" class="button button-small">Filter</button>
     </form>
 
-    <div class="card card-tight">
-      <div class="table-wrap">
-        <table class="data">
+    <div class="table-wrap">
+      <table class="data">
           <thead>
             <tr>
-              <th>Date</th><th>Instrument</th><th>Category</th><th>What for</th>
+              <th>Date</th><th>Equipment</th><th>Category</th><th>What for</th>
               <th>Vendor</th><th>Paid from</th><th class="num">Amount</th><th></th>
             </tr>
           </thead>
@@ -273,7 +276,7 @@ A recharge account is meant to recover its costs — no more, and no less.</p>
                   <p class="hint">Covers <?= h(pretty_date($row['covers_start'])) ?>
                   to <?= h(pretty_date($row['covers_end'])) ?>
                   <?php if ($row['covers_end'] < date('Y-m-d')): ?>
-                    <span class="pill pill-error">expired</span>
+                    <span class="pill pill-error">Expired</span>
                   <?php endif; ?></p>
                 <?php endif; ?>
                 <?php if ($row['reference']): ?><p class="hint">Ref <?= h($row['reference']) ?></p><?php endif; ?>
@@ -284,7 +287,8 @@ A recharge account is meant to recover its costs — no more, and no less.</p>
               <td class="nowrap">
                 <div class="button-row">
                   <a class="button button-secondary button-small" href="?edit=<?= (int) $row['cost_id'] ?>">Edit</a>
-                  <form method="post" onsubmit="return confirm('Remove this cost entry?');">
+                  <form method="post" data-confirm="Remove this cost entry?"
+                        data-confirm-ok="Remove" data-confirm-danger>
                     <?= csrf_field() ?>
                     <input type="hidden" name="action" value="delete">
                     <input type="hidden" name="cost_id" value="<?= (int) $row['cost_id'] ?>">
@@ -296,8 +300,7 @@ A recharge account is meant to recover its costs — no more, and no less.</p>
             </tr>
           <?php endforeach; ?>
           </tbody>
-        </table>
-      </div>
+      </table>
     </div>
     <p class="hint">The most recent 300 entries are listed.</p>
     <?php accordion_close(); ?>
@@ -314,9 +317,9 @@ A recharge account is meant to recover its costs — no more, and no less.</p>
 
     <div class="field-row">
       <div class="field">
-        <label for="c_equipment">Instrument</label>
+        <label for="c_equipment">Equipment</label>
         <select id="c_equipment" name="equipment_id" required>
-          <option value="">Choose an instrument&hellip;</option>
+          <option value="">Choose equipment&hellip;</option>
           <?php foreach ($equipment as $item): ?>
             <option value="<?= (int) $item['equipment_id'] ?>"
               <?= (int) ($editing['equipment_id'] ?? $filterEquip) === (int) $item['equipment_id'] ? 'selected' : '' ?>>
@@ -371,7 +374,7 @@ A recharge account is meant to recover its costs — no more, and no less.</p>
       <label for="c_paid">Paid from (CFOPA)</label>
       <input type="text" id="c_paid" name="paid_from_cfopa" placeholder="1-303631-375002-375150-A00"
              value="<?= h($editing['paid_from_cfopa'] ?? '') ?>">
-      <p class="hint">Which account the money came out of. Not the account the instrument earns into.</p>
+      <p class="hint">Which account the money came out of. Not the account the equipment earns into.</p>
     </div>
 
     <fieldset>

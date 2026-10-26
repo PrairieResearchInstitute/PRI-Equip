@@ -2,7 +2,7 @@
    calendar.js — the scheduling grid.
 
    The grid skeleton is rendered by schedule.php. This file loads the week's
-   bookings from api.php, draws them onto the grid, and handles dragging.
+   reservations from api.php, draws them onto the grid, and handles dragging.
 
    It never decides a conflict. Every create, move, and resize is sent to the
    server, and local state changes only after the server says yes; when the
@@ -44,13 +44,13 @@
 
   /* 'YYYY-MM-DD HH:MM:SS' parsed by hand: Safari will not parse it reliably. */
   function parseDT(text) {
-    var m = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/.exec(text || '');
+    var m = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/.exec(text || ''); // dialect-ok: RegExp.exec on a date string, not SQL
     if (!m) { return null; }
     return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], 0, 0);
   }
 
   function parseDate(text) {
-    var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(text || '');
+    var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(text || ''); // dialect-ok: RegExp.exec on a date string, not SQL
     return m ? new Date(+m[1], +m[2] - 1, +m[3], 0, 0, 0, 0) : new Date();
   }
 
@@ -174,7 +174,7 @@
     });
   }
 
-  /* The half-hour rows a booking occupies on one day of the shown week. */
+  /* The half-hour rows a reservation occupies on one day of the shown week. */
   function segmentsFor(reservation) {
     var start = parseDT(reservation.start);
     var end = parseDT(reservation.end);
@@ -283,9 +283,9 @@
   /**
    * Decide how much of each block's label fits.
    *
-   * A half hour booking is one row tall, which at a full day on one screen is
+   * A half hour reservation is one row tall, which at a full day on one screen is
    * around fifteen pixels: room for a name and nothing else. Two hours has room
-   * for the name, the times, and what the booking is for. Rather than guess,
+   * for the name, the times, and what the reservation is for. Rather than guess,
    * measure the block and let the class say what survives; the tooltip carries
    * the rest either way.
    */
@@ -296,8 +296,8 @@
 
       // Measured against the type sizes in the stylesheet: three lines need
       // about fifty pixels, two need about twenty-four, one needs eleven. An
-      // hour-long booking lands just over the two-line mark, which is the case
-      // worth getting right because most bookings are an hour.
+      // hour-long reservation lands just over the two-line mark, which is the case
+      // worth getting right because most reservations are an hour.
       if (height >= 50)      { block.classList.add('label-full'); }
       else if (height >= 24) { block.classList.add('label-compact'); }
       else if (height >= 11) { block.classList.add('label-tiny'); }
@@ -483,16 +483,38 @@
 
   /* --- modal ------------------------------------------------------------- */
 
+  /* The same shell PriDialog builds in dialog.js, with a form around it so the
+     reservation fields post on submit: a title row with a close control, Cancel on
+     the left, the one primary action on the right, and the focus handed back
+     to whatever opened it (PCE-36). */
   function openModal(options) {
+    var trigger  = document.activeElement;
+    var titleId  = 'cal-modal-title';
+
     var backdrop = document.createElement('div');
     backdrop.className = 'modal-backdrop';
 
     var modal = document.createElement('form');
     modal.className = 'modal';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-labelledby', titleId);
+
+    var head = document.createElement('div');
+    head.className = 'modal-head';
 
     var heading = document.createElement('h2');
+    heading.id = titleId;
     heading.textContent = options.title;
-    modal.appendChild(heading);
+    head.appendChild(heading);
+
+    var closer = document.createElement('button');
+    closer.type = 'button';
+    closer.className = 'modal-close';
+    closer.setAttribute('aria-label', 'Close');
+    closer.innerHTML = '&times;';
+    head.appendChild(closer);
+    modal.appendChild(head);
 
     if (options.when) {
       var when = document.createElement('p');
@@ -508,18 +530,18 @@
     var actions = document.createElement('div');
     actions.className = 'form-actions';
 
-    var confirm = document.createElement('button');
-    confirm.type = 'submit';
-    confirm.className = 'button';
-    confirm.textContent = options.confirmLabel || 'Save';
-
     var cancel = document.createElement('button');
     cancel.type = 'button';
     cancel.className = 'button button-secondary';
     cancel.textContent = 'Cancel';
 
-    actions.appendChild(confirm);
+    var confirm = document.createElement('button');
+    confirm.type = 'submit';
+    confirm.className = 'button' + (options.danger ? ' button-danger' : '');
+    confirm.textContent = options.confirmLabel || 'Save';
+
     actions.appendChild(cancel);
+    actions.appendChild(confirm);
     modal.appendChild(actions);
     backdrop.appendChild(modal);
     document.body.appendChild(backdrop);
@@ -527,11 +549,14 @@
     function close() {
       if (backdrop.parentNode) { backdrop.parentNode.removeChild(backdrop); }
       document.removeEventListener('keydown', onKey, true);
+      if (trigger && typeof trigger.focus === 'function') { trigger.focus(); }
     }
 
     function onKey(event) {
       if (event.key === 'Escape') { event.stopPropagation(); close(); }
     }
+
+    closer.addEventListener('click', close);
 
     cancel.addEventListener('click', close);
     backdrop.addEventListener('mousedown', function (event) {
@@ -562,14 +587,14 @@
     var date = dayDate(day);
 
     openModal({
-      title: 'Book this time',
+      title: 'Book This Time',
       when: prettyDay(date) + ', ' + slotLabel(startSlot) + ' to ' + slotLabel(endSlot),
       bodyHtml:
         '<div class="field"><label for="mHolder">Booked by</label>' +
         '<input type="text" id="mHolder" name="holder" value="' + escapeAttr(state.me) + '" readonly></div>' +
         '<div class="field"><label for="mPurpose">Purpose <span class="muted">(optional)</span></label>' +
         '<input type="text" id="mPurpose" name="purpose" placeholder="Shown when someone hovers the block."></div>',
-      confirmLabel: 'Book it',
+      confirmLabel: 'Book It',
       onConfirm: function (form) {
         return post({
           action: 'create',
@@ -643,7 +668,7 @@
     var row = document.createElement('div');
     row.className = 'button-row';
 
-    row.appendChild(button('Record use', function () {
+    row.appendChild(button('Record Use', function () {
       var url = 'index.php?equipment_id=' + reservation.equipment
         + '&use_date=' + encodeURIComponent(isoDate(start))
         + '&operator=' + encodeURIComponent(reservation.by)
@@ -654,7 +679,7 @@
     if (mine) {
       row.appendChild(button('Repeat…', function () { openRepeat(reservation); }));
       row.appendChild(button('Copy', function () { copyBlock(reservation); }));
-      row.appendChild(button('Cancel booking', function () { removeBlock(reservation); }, 'button-danger'));
+      row.appendChild(button('Cancel Reservation', function () { removeBlock(reservation); }, 'button-danger'));
     }
     row.appendChild(button('Done', function () { clearActionBar(); }));
 
@@ -684,13 +709,13 @@
     }).join('');
 
     openModal({
-      title: 'Repeat across the week',
+      title: 'Repeat Across the Week',
       when: slotLabel(start.getHours() * 2 + (start.getMinutes() >= 30 ? 1 : 0)) + ' to '
         + slotLabel(end.getHours() * 2 + (end.getMinutes() >= 30 ? 1 : 0))
         + ', on the days you choose in the week shown.',
       bodyHtml: '<div class="field"><label>Days</label><div class="weekday-picker">' + boxes + '</div>'
-        + '<p class="hint">Days that clash with an existing booking are skipped and named afterwards.</p></div>',
-      confirmLabel: 'Create bookings',
+        + '<p class="hint">Days that clash with an existing reservation are skipped and named afterwards.</p></div>',
+      confirmLabel: 'Create Reservations',
       onConfirm: function (form) {
         var days = Array.prototype.slice.call(form.querySelectorAll('[name=days]:checked'))
           .map(function (box) { return box.value; });
@@ -709,7 +734,7 @@
           if (!result || !result.ok) { refused(result); return; }
           var made = (result.reservations || []).length;
           var skipped = result.skipped || [];
-          say(made + ' booking' + (made === 1 ? '' : 's') + ' created.'
+          say(made + ' reservation' + (made === 1 ? '' : 's') + ' created.'
             + (skipped.length ? ' Skipped ' + skipped.join(', ') + '.' : ''),
             skipped.length ? 'notice' : 'success');
           load();
@@ -746,12 +771,19 @@
   }
 
   function removeBlock(reservation) {
-    if (!window.confirm('Cancel this booking?')) { return; }
-    post({ action: 'delete', reservation_id: reservation.id }).then(function (result) {
-      if (!result || !result.ok) { refused(result); return; }
-      clearActionBar();
-      clearMessages();
-      load();
+    window.PriDialog.confirm({
+      title: 'Cancel Reservation',
+      message: 'Cancel this reservation?',
+      okLabel: 'Cancel Reservation',
+      danger: true
+    }).then(function (yes) {
+      if (!yes) { return; }
+      post({ action: 'delete', reservation_id: reservation.id }).then(function (result) {
+        if (!result || !result.ok) { refused(result); return; }
+        clearActionBar();
+        clearMessages();
+        load();
+      });
     });
   }
 

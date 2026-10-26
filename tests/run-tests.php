@@ -31,37 +31,60 @@ if (PHP_SAPI !== 'cli') {
  * sqlite for the duration rather than trust whatever .env happens to say.
  *
  * Exercising the Postgres path needs its own throwaway database; see
- * Migration/README.md for why that is not this file's job.
+ * the migration notes (reference/Migration-README.md on the owner's copy;
+ * git history keeps them as Migration/README.md) for why that is not this
+ * file's job.
  */
+$pgTarget = null;
 if (getenv('PACELAB_TEST_DRIVER') === 'pgsql') {
     /*
      * Opt-in Postgres run. The database name must end in _test: these tests
-     * create, update and delete rows, and the whole reason the harness
-     * normally pins itself to sqlite is that a Postgres connection ignores
-     * LAB_DB_PATH and would otherwise reach the live database.
+     * create, update and delete rows and drop every table before they start,
+     * and the whole reason the harness normally pins itself to sqlite is that
+     * a Postgres connection ignores LAB_DB_PATH and would otherwise reach the
+     * live database. The name comes from PACELAB_TEST_PGDATABASE, then
+     * PGTESTDATABASE (pg.env), then pacelab_test; the credentials from the
+     * PG* names through includes/env.php. After connecting, the harness asks
+     * the server which database it reached and refuses again if the answer
+     * is not this name.
      */
-    $target = (string) (getenv('PACELAB_TEST_PGDATABASE') ?: 'pacelab_test');
-    if (!str_ends_with($target, '_test')) {
-        fwrite(STDERR, "Refusing to run: PACELAB_TEST_PGDATABASE is '$target', which does not end in _test.
-");
+    require_once __DIR__ . '/../includes/env.php';
+    $pgTarget = lab_test_database();
+    if (!str_ends_with($pgTarget, '_test')) {
+        fwrite(STDERR, "Refusing to run: the test database is '$pgTarget', which does not end in _test.\n");
         exit(2);
     }
+    define('LAB_FORCE_DRIVER', 'pgsql');   // outranks PACELAB_DRIVER and databaseDriver wherever they are set
     putenv('PACELAB_DRIVER=pgsql');
-    putenv('PGDATABASE=' . $target);
-    fwrite(STDOUT, "Running against Postgres database '$target'.
-");
+    putenv('PGDATABASE=' . $pgTarget);
+    fwrite(STDOUT, "Running against Postgres database '$pgTarget'.\n");
 } else {
+    define('LAB_FORCE_DRIVER', 'sqlite');  // config.local.json databaseDriver pgsql must not move the tests
     putenv('PACELAB_DRIVER=sqlite');
 }
 
-$tempDb = sys_get_temp_dir() . '/lab-tests-' . getmypid() . '.sqlite';
-foreach (glob(sys_get_temp_dir() . '/lab-tests-*.sqlite*') ?: [] as $stale) {
+// The throwaway database goes on the drive beside the data folder, not in
+// %TEMP% on C: (owner standard B, D-007). The loader is required on its own
+// here because LAB_DB_PATH has to be defined before includes/db.php runs.
+require_once __DIR__ . '/../includes/local-config.php';
+$scratch = lab_temp_dir();
+if ($scratch !== null && !is_dir($scratch)) {
+    @mkdir($scratch, 0777, true);
+}
+$tempRoot = ($scratch !== null && is_dir($scratch)) ? $scratch : sys_get_temp_dir();
+$tempDb = $tempRoot . '/lab-tests-' . getmypid() . '.sqlite';
+foreach (glob($tempRoot . '/lab-tests-*.sqlite*') ?: [] as $stale) {
     @unlink($stale);                    // leftovers from a previous run
 }
 define('LAB_DB_PATH', $tempDb);
 
 require __DIR__ . '/../includes/functions.php';
 require __DIR__ . '/../includes/schema.php';
+
+// The rules below are written for the password mode (typed names, admin_users).
+// authMode in config.local.json or PACELAB_AUTH_MODE must not move them; the
+// NetID section near the end switches modes itself (D-015).
+auth_mode('password');
 
 // ---------------------------------------------------------------------------
 // The smallest harness that does the job
@@ -105,48 +128,52 @@ function refuses(string $what, callable $fn): void
     }
 }
 
+/**
+ * A drive (letter and colon) that is not mounted on this computer: the first
+ * free one, scanning Z down to C. Checks that need a lettered path build it
+ * from this, so no drive letter is written in the tests.
+ */
+function free_drive(): string
+{
+    for ($c = ord('Z'); $c >= ord('C'); $c--) {
+        if (!is_dir(chr($c) . ':' . DIRECTORY_SEPARATOR)) {
+            return chr($c) . ':';
+        }
+    }
+    throw new RuntimeException('every drive letter is mounted');
+}
+
 // ---------------------------------------------------------------------------
 // Two laboratories with something in them
 // ---------------------------------------------------------------------------
 
 $pdo = db();
+require_once __DIR__ . '/../includes/db_migrations.php';
 if (db_driver() === 'pgsql') {
     /*
-     * The schema is already there: pacelab_test is a TEMPLATE copy of the
-     * live database. schema_statements() is SQLite DDL and Postgres rejects
-     * it at AUTOINCREMENT, so clear the rows instead and let the seeding
-     * below rebuild the starting state.
-     *
-     * Reverse dependency order, because the application role has DELETE but
-     * deliberately not TRUNCATE.
+     * Ask the server which database this connection reached, and refuse
+     * unless it is the test database named above. The name check before
+     * connecting guards the setting; this one guards everything between the
+     * setting and the socket.
      */
-    $all = [
-        'units', 'labs', 'grants', 'equipment', 'lab_members', 'equipment_costs',
-        'export_batches', 'usage_records', 'reservations', 'email_log',
-        'admin_users', 'login_attempts', 'picklists', 'settings',
-    ];
-    foreach (array_reverse($all) as $t) {
-        $pdo->exec('DELETE FROM "' . $t . '"');
+    $reached = (string) db_value('SELECT current_database()');
+    if ($reached !== $pgTarget) {
+        fwrite(STDERR, "Refusing to run: connected to '$reached', not the test database '$pgTarget'.\n");
+        exit(2);
     }
     /*
-     * Restart every identity sequence at 1.
-     *
-     * The tests assume a brand-new database - acting_as() signs in as
-     * admin_user_id 1, for instance. SQLite gets a fresh file each run so
-     * that holds; Postgres reuses pacelab_test and deleting rows does not
-     * rewind a sequence, so without this the second run has no row with
-     * id 1 and a dozen tests fail for a reason that has nothing to do with
-     * the code under test.
-     *
-     * Possible only because 04_create_test_db.sql hands the test database
-     * to the application role. In the live database it still cannot alter
-     * anything.
+     * Build the test database from nothing on every run: drop every table
+     * (the application role owns them; mig_pg_reset_test_database() refuses
+     * a database not ending in _test and any table another role owns), then
+     * apply migrations/*.pgsql.sql through the same runner tools/migrate.php
+     * and install.php use. The suite therefore exercises exactly the schema a
+     * new PostgreSQL installation gets, every identity starts at 1 as on a
+     * fresh SQLite file, and no row from anywhere else survives into a run.
+     * The earlier arrangement (a TEMPLATE copy of the live database, emptied
+     * row by row) tested production's schema rather than the migrations.
      */
-    foreach ($pdo->query(
-        "SELECT sequencename FROM pg_sequences WHERE schemaname = 'public'"
-    )->fetchAll(PDO::FETCH_COLUMN) as $seq) {
-        $pdo->exec('ALTER SEQUENCE public."' . $seq . '" RESTART WITH 1');
-    }
+    mig_pg_reset_test_database($pdo);
+    mig_apply($pdo, 'pgsql');
 } else {
     foreach (schema_statements() as $sql) {
         $pdo->exec($sql);
@@ -162,7 +189,9 @@ foreach (seed_picklists() as [$list, $code, $label, $sort, $protected]) {
         [$list, $code, $label, $sort, 1, $protected]
     );
 }
-foreach (seed_settings('Test Installation') as $key => $value) {
+$seeded = seed_settings('Test Installation');
+$seeded['app_name'] = 'Test Application';
+foreach ($seeded as $key => $value) {
     db_insert_ignore('settings', ['key', 'value'], [$key, $value]);
 }
 
@@ -579,10 +608,104 @@ function tab_title(string $heading): string
 acting_as('Ruiz', $labA);
 same('a screen is named, then the laboratory', 'Use entry · Alpha Lab', tab_title('Use entry'));
 same('the laboratory dashboard names the application rather than repeating itself',
-    'Alpha Lab · Test Installation', tab_title('Alpha Lab'));
+    'Alpha Lab · Test Application', tab_title('Alpha Lab'));
 acting_as('Stranger');
 same('with no laboratory yet, the application names itself',
-    'Choose a laboratory · Test Installation', tab_title('Choose a laboratory'));
+    'Choose a laboratory · Test Application', tab_title('Choose a laboratory'));
+
+// ---------------------------------------------------------------------------
+heading('Where the data folder resolves');
+
+// includes/local-config.php decides where the live database lives, and until
+// the estate moved drives it had no check of its own. On Windows a backslash
+// and a forward slash are both separators; on a Linux server only the forward
+// slash is, so a dataFolder written as ..\..\data\x has to be normalised
+// before it is split into segments. Remove that normalisation and this copy
+// keeps working while a Linux server silently makes a folder whose name is the
+// whole relative path.
+$ds = DIRECTORY_SEPARATOR;
+
+same('a plain name resolves inside the application folder',
+    APP_ROOT . $ds . 'data', lab_resolve('data'));
+same('a parent step lands one folder up',
+    dirname(APP_ROOT) . $ds . 'sibling', lab_resolve('../sibling'));
+same('two parent steps and a name resolve as written',
+    dirname(dirname(APP_ROOT)) . $ds . 'data' . $ds . 'pacelab-equip' . $ds . 'data',
+    lab_resolve('../../data/pacelab-equip/data'));
+same('the backslash form resolves to the same folder as the forward slash form',
+    lab_resolve('../../data/pacelab-equip/data'),
+    lab_resolve('..\..\data\pacelab-equip\data'));
+ok('no relative segment survives resolution',
+    !in_array('..', explode($ds, lab_resolve('..\..\data\x')), true)
+    && !in_array('.', explode($ds, lab_resolve('.\data')), true));
+ok('an absolute dataFolder is recognised, so lab_data_dir() can refuse it',
+    lab_path_is_absolute(free_drive() . '\lab') && lab_path_is_absolute('/srv/lab')
+    && lab_path_is_absolute('\\server\share')
+    && !lab_path_is_absolute('data') && !lab_path_is_absolute('..\..\data'));
+
+// DEPLOY.md tells a hoster to move the database with config.php, which works
+// by defining LAB_DB_PATH before includes/db.php runs. This harness does the
+// same thing, so the guarantee is testable here: the loader must never
+// override a path that is already defined.
+ok('a path defined before the loader runs wins, which is how config.php moves the database',
+    LAB_DB_PATH === $tempDb);
+
+// Owner standard B: the application keeps nothing on the computer. The temp
+// folder is the one that was easy to get wrong, because PHP's default session
+// folder is on C: and a session file says who is signed in.
+if (lab_data_folder_configured()) {
+    $tmpDir = (string) lab_temp_dir();
+    same('the temp folder sits beside the data folder',
+        dirname(lab_data_dir()) . DIRECTORY_SEPARATOR . 'tmp', $tmpDir);
+    ok('and not inside it, so scratch is never in what gets backed up',
+        strpos($tmpDir, lab_data_dir() . DIRECTORY_SEPARATOR) !== 0);
+    ok('the suite runs its throwaway database there rather than in the system temp',
+        strpos(LAB_DB_PATH, $tmpDir) === 0, LAB_DB_PATH);
+} else {
+    ok('with no data folder configured the temp folder is left to the server',
+        lab_temp_dir() === null);
+}
+
+// The server launcher has to pass the folder to PHP: resolving it is not the
+// same as using it, and nothing else would notice if the flags went missing.
+$sup = (string) file_get_contents(APP_ROOT . '/tools/supervisor.ps1');
+ok('the supervisor points PHP sessions, uploads and temp at that folder',
+    strpos($sup, 'session.save_path=') !== false
+    && strpos($sup, 'upload_tmp_dir=') !== false
+    && strpos($sup, 'sys_temp_dir=') !== false
+    && strpos($sup, 'Get-LabTempDir') !== false);
+
+// config.template.json is the file a hoster copies to config.local.json, and
+// lab_config_save() seeds from it. Leaving it out of the release ships a
+// loader nobody can configure.
+$ship = (string) file_get_contents(APP_ROOT . '/tools/build-release.ps1');
+$cut  = function (string $text, string $start): string {
+    $i = strpos($text, $start);
+    if ($i === false) { return ''; }
+    $j = strpos($text, "
+
+", $i);
+    return $j === false ? '' : substr($text, $i, $j - $i);
+};
+$shipList  = $cut($ship, '$files = @(');
+$shipNever = $cut($ship, '$forbidden = @(');
+
+ok('the ship list and the forbidden list were both found',
+    $shipList !== '' && $shipNever !== '');
+ok('config.template.json ships, so the loader in the zip can be configured',
+    strpos($shipList, "'config.template.json'") !== false
+    && strpos($shipNever, "'config.template.json'") === false);
+ok('config.local.json never ships, because it names one machine',
+    strpos($shipNever, "'config.local.json'") !== false
+    && strpos($shipList, "'config.local.json'") === false);
+
+if (lab_data_folder_configured()) {
+    same('the data folder in use is the resolved dataFolder',
+        lab_resolve(trim((string) lab_config()['dataFolder'])), lab_data_dir());
+} else {
+    same('with no dataFolder the data stays inside the application folder',
+        APP_ROOT . $ds . 'data', lab_data_dir());
+}
 
 // ---------------------------------------------------------------------------
 heading('Editing the code from inside the application');
@@ -598,12 +721,15 @@ ok('a real source file resolves',            studio_resolve('includes/functions.
 ok('so does one in a subfolder',             studio_resolve('admin/users.php') !== null);
 ok('walking up with .. is refused',          studio_resolve('../../../windows/win.ini') === null);
 ok('so is a disguised walk',                 studio_resolve('includes/../../secrets.php') === null);
-ok('an absolute path outside is refused',    studio_resolve('C:/Windows/win.ini') === null);
+// A real file outside the folder, found from %SystemRoot% so no drive letter is written here.
+$outside = str_replace('\\', '/', (string) (getenv('SystemRoot') ?: '/etc')) . '/win.ini';
+ok('an absolute path outside is refused',    studio_resolve($outside) === null);
 ok('a unix absolute path is refused',        studio_resolve('/etc/passwd') === null);
 ok('a null byte is refused',                 studio_resolve("includes/db.php\0.txt") === null);
 ok('the database is not editable',           studio_resolve('data/lab.sqlite') === null);
 ok('nor anything else under data',           studio_resolve('data/.htaccess') === null);
 ok('nor the bundled PHP runtime',            studio_resolve('tools/php/php.exe') === null);
+ok('nor config.local.json (the data folder)', studio_resolve('config.local.json') === null);
 ok('an empty path is refused',               studio_resolve('') === null);
 ok('a directory is refused',                 studio_resolve('includes') === null);
 ok('a file that does not exist is refused',  studio_resolve('includes/nope.php') === null);
@@ -676,6 +802,59 @@ same('a new administrator may not edit code', 0,
 db_run('UPDATE admin_users SET may_edit_code = 1 WHERE user_id = ?', [$plainId]);
 same('the grant can be given', 1,
     (int) db_value('SELECT may_edit_code FROM admin_users WHERE user_id = ?', [$plainId]));
+
+// ---------------------------------------------------------------------------
+heading('The interface keeps the shape the spec gives it');
+
+/*
+ * Two rules from docs/design.md that fail silently when they break.
+ *
+ * The button variants lost to the base rule for months: ".button-danger"
+ * alone is one class, "button.button" and "a.button" are two, so every
+ * secondary, danger and small button rendered as a solid navy primary and
+ * nothing errored. Written as ".button.button-danger" the variant wins
+ * (PCE-01).
+ *
+ * The native confirm() is worse than ugly: a browser that suppresses dialogs
+ * turns "are you sure?" into a silent yes, and the voided charge or cancelled
+ * booking is already gone. The application asks through PriDialog, with
+ * confirm_page() for a browser with JavaScript off (PCE-35, Q-27).
+ */
+$css = (string) file_get_contents(__DIR__ . '/../assets/style.css');
+
+$weakVariants = [];
+foreach (['button-secondary', 'button-danger', 'button-small'] as $variant) {
+    // A rule that opens on the bare variant, rather than on .button.variant.
+    if (preg_match('/(^|,|\})\s*\.' . $variant . '[\s,:{]/m', $css)) {
+        $weakVariants[] = '.' . $variant;
+    }
+}
+ok('every button variant outranks the base rule', $weakVariants === [],
+    implode(', ', $weakVariants) . ' must be written .button.<variant>');
+
+$nativeDialogs = [];
+$frontEnd = array_merge(
+    glob(__DIR__ . '/../*.php') ?: [],
+    glob(__DIR__ . '/../includes/*.php') ?: [],
+    glob(__DIR__ . '/../admin/*.php') ?: [],
+    glob(__DIR__ . '/../assets/*.js') ?: []
+);
+foreach ($frontEnd as $file) {
+    $name = basename($file);
+    if ($name === 'dialog.js') {
+        continue;               // the file that explains why the others may not
+    }
+    $text = (string) file_get_contents($file);
+    foreach (['confirm', 'prompt', 'alert'] as $call) {
+        // window.confirm(...) or a bare confirm(...), but not our own
+        // confirm_page(), needs_confirmation() or PriDialog.confirm().
+        if (preg_match('/(?<![\w.>$])(?:window\s*\.\s*)?' . $call . '\s*\(/', $text)) {
+            $nativeDialogs[] = $name . ': ' . $call . '()';
+        }
+    }
+}
+ok('nothing asks through a native browser dialog', $nativeDialogs === [],
+    implode(', ', $nativeDialogs));
 
 // ---------------------------------------------------------------------------
 heading('The code runs on the server it is going to');
@@ -792,6 +971,540 @@ foreach ($sources as $file) {
 }
 ok('every IN list is question marks, never values', $badPlaceholders === [],
     implode(', ', $badPlaceholders));
+
+// ---------------------------------------------------------------------------
+heading('The data follows the drive, whatever its letter (drive-invariance)');
+
+// Everything here happens in a folder of its own under the test scratch
+// folder, removed at the end. The "other letter" is the first one with no
+// drive behind it, computed here so no drive letter is written in the tests.
+$dv = $tempRoot . DIRECTORY_SEPARATOR . 'drive-inv-' . getmypid();
+@mkdir($dv . DIRECTORY_SEPARATOR . 'backups', 0777, true);
+$unmounted = '';
+for ($c = ord('Z'); $c >= ord('D'); $c--) {
+    if (!is_dir(chr($c) . ':' . DIRECTORY_SEPARATOR)) {
+        $unmounted = chr($c);
+        break;
+    }
+}
+$norm = static fn (string $p): string => strtolower(rtrim(str_replace('\\', '/', $p), '/'));
+
+ok('a relative backup folder resolves against the application folder',
+    lab_backup_target('../x/backups', 'test') === lab_resolve('../x/backups'));
+
+// R2: a backup folder written while the drive had another letter is found
+// under the drive's letter today. Possible only where paths carry letters and
+// the scratch folder shares the application's drive or estate folder.
+$backupsReal = (string) realpath($dv . DIRECTORY_SEPARATOR . 'backups');
+$estateDir = dirname(dirname(APP_ROOT));
+$reachable = $unmounted !== '' && preg_match('#^[A-Za-z]:#', $backupsReal)
+    && (strncasecmp($backupsReal, APP_ROOT, 2) === 0
+        || stripos($norm($backupsReal), $norm($estateDir) . '/') === 0);
+if ($reachable) {
+    $stale = $unmounted . substr($backupsReal, 1);
+    try {
+        $found = lab_backup_target($stale, 'test');
+    } catch (Throwable $e) {
+        $found = $e->getMessage();
+    }
+    ok('a backup folder stored under another drive letter is found under today\'s',
+        $norm($found) === $norm($backupsReal), $stale . ' gave ' . $found);
+} else {
+    ok('a backup folder stored under another drive letter is found under today\'s (no drive letters here, nothing to re-root)', true);
+}
+refuses('a missing absolute backup folder is refused, never created',
+    fn () => lab_backup_target(($unmounted !== '' ? $unmounted . ':' : '') . '/no-such-' . getmypid() . '/backups', 'test'));
+
+// R4: the database never opens empty where the real one should have been.
+$gone = $dv . '/gone/data/lab.sqlite';
+$msg = lab_data_dir_problem($gone);
+ok('a data folder whose parent is missing is refused with a message',
+    is_string($msg) && str_contains($msg, 'Data folder not found') && !is_dir($dv . '/gone'), (string) $msg);
+@mkdir($dv . '/installed', 0777, true);
+file_put_contents($dv . '/installed/.installed', 'x');
+$msg = lab_data_dir_problem($dv . '/installed/lab.sqlite');
+ok('an installed data folder without lab.sqlite is refused, not reopened empty',
+    is_string($msg) && str_contains($msg, 'Database not found'), (string) $msg);
+@mkdir($dv . '/first', 0777, true);
+ok('a first run creates only the leaf folder, under a parent that exists',
+    lab_data_dir_problem($dv . '/first/data/lab.sqlite') === null && is_dir($dv . '/first/data'));
+ok('the check alone creates nothing',
+    lab_data_dir_problem($dv . '/first/other/lab.sqlite', false) === null && !is_dir($dv . '/first/other'));
+
+$rm = static function (string $d) use (&$rm): void {
+    foreach (glob($d . '/{,.}[!.]*', GLOB_BRACE) ?: [] as $f) {
+        is_dir($f) ? $rm($f) : @unlink($f);
+    }
+    @rmdir($d);
+};
+$rm($dv);
+
+heading('PostgreSQL: settings, the driver switch and the migrations (platform D-027)');
+
+// Everything in a folder of its own, removed at the end. No value written
+// here is a real setting: hosts and users are made-up words.
+$pgd = $tempRoot . DIRECTORY_SEPARATOR . 'pg-settings-' . getmypid();
+@mkdir($pgd, 0777, true);
+file_put_contents($pgd . '/a.env', "\xEF\xBB\xBF# a comment\nPGHOST=host-a\nexport PGPORT=6001\nPGUSER=\"user-a\"\nUNRELATED=ignored\nPGDATABASE=\n");
+file_put_contents($pgd . '/b.env', "PGHOST=host-b\nPGDATABASE=db-b\nPGTESTDATABASE=db_b_test\n");
+$parsed = lab_env_parse($pgd . '/a.env');
+same('an environment file yields only the PG* names, quotes and export removed, empty values skipped',
+    ['PGHOST' => 'host-a', 'PGPORT' => '6001', 'PGUSER' => 'user-a'], $parsed);
+same('the first file that sets a name wins, later files fill the gaps',
+    ['PGHOST' => 'host-a', 'PGPORT' => '6001', 'PGUSER' => 'user-a', 'PGDATABASE' => 'db-b', 'PGTESTDATABASE' => 'db_b_test'],
+    lab_env_collect([$pgd . '/a.env', $pgd . '/missing.env', $pgd . '/b.env']));
+
+$files = array_column(lab_env_files(), 1);
+ok('.env beside index.php is read last', end($files) === APP_ROOT . DIRECTORY_SEPARATOR . '.env');
+ok('pg.env is read from beside the data folder when one is configured, never from a fixed path',
+    lab_data_folder_configured()
+        ? in_array(dirname(lab_data_dir()) . DIRECTORY_SEPARATOR . 'pg.env', $files, true)
+        : count(array_filter($files, fn ($f) => str_ends_with($f, 'pg.env'))) === 0);
+$was = getenv('PACELAB_ENV_FILE');
+putenv('PACELAB_ENV_FILE=' . $pgd . '/b.env');
+ok('PACELAB_ENV_FILE is read first when set', (lab_env_files()[0][1] ?? '') === $pgd . '/b.env');
+$was === false ? putenv('PACELAB_ENV_FILE') : putenv('PACELAB_ENV_FILE=' . $was);
+$sources = json_encode(lab_env_sources());
+ok('the source report names files and names, never a value',
+    !str_contains((string) $sources, 'host-a') && !str_contains((string) $sources, 'host-b'));
+
+$wasT = getenv('PACELAB_TEST_PGDATABASE');
+putenv('PACELAB_TEST_PGDATABASE=other_test');
+same('the test database name comes from PACELAB_TEST_PGDATABASE before PGTESTDATABASE', 'other_test', lab_test_database());
+$wasT === false ? putenv('PACELAB_TEST_PGDATABASE') : putenv('PACELAB_TEST_PGDATABASE=' . $wasT);
+
+same('the driver defaults to sqlite with nothing set', 'sqlite', db_driver_from(null, null, '', null));
+same('config.local.json databaseDriver pgsql switches the drive copy', 'pgsql', db_driver_from(null, null, 'pgsql', null));
+same('a PACELAB_DRIVER line in .env cannot undo the switch in config.local.json', 'pgsql', db_driver_from(null, null, 'pgsql', 'sqlite'));
+same('PACELAB_DRIVER from .env still decides when config.local.json is silent', 'pgsql', db_driver_from(null, null, '', 'pgsql'));
+same('a PACELAB_DRIVER the server really sets outranks config.local.json', 'sqlite', db_driver_from(null, 'sqlite', 'pgsql', null));
+same('the test harness outranks everything', 'sqlite', db_driver_from('sqlite', 'pgsql', 'pgsql', 'pgsql'));
+same('anything but pgsql means sqlite', 'sqlite', db_driver_from(null, 'mysql', '', null));
+same('this run uses the driver the harness chose', LAB_FORCE_DRIVER, db_driver());
+refuses('config.local.json refuses a databaseDriver other than sqlite or pgsql',
+    fn () => lab_config_save(['databaseDriver' => 'mysql']));
+
+// The harness itself refuses a database whose name does not end in _test,
+// before it connects. The child gets a port nothing listens on, so even a
+// broken guard could not reach a server.
+$childEnv = array_merge(getenv(), [
+    'PACELAB_TEST_DRIVER' => 'pgsql', 'PACELAB_TEST_PGDATABASE' => 'pacelab',
+    'PGHOST' => '127.0.0.1', 'PGPORT' => '1', 'PACELAB_ENV_FILE' => $pgd . '/missing.env',
+]);
+$proc = proc_open([PHP_BINARY, '-n', __FILE__], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, APP_ROOT, $childEnv);
+$childOut = stream_get_contents($pipes[1]) . stream_get_contents($pipes[2]);
+fclose($pipes[1]);
+fclose($pipes[2]);
+$childCode = proc_close($proc);
+ok('the harness refuses a test database whose name does not end in _test, with exit code 2',
+    $childCode === 2 && str_contains($childOut, 'Refusing to run'), 'exit ' . $childCode . ': ' . trim($childOut));
+
+// Two SQLite files: one from schema.php (what install.php builds), one from
+// the numbered migrations. They must agree table for table, column for column.
+$fromSchema = $pgd . '/schema.sqlite';
+$fromMig = $pgd . '/migrations.sqlite';
+$sa = new PDO('sqlite:' . $fromSchema, null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);
+foreach (schema_statements() as $sql) {
+    $sa->exec($sql);
+}
+$sb = new PDO('sqlite:' . $fromMig, null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);
+$applied = mig_apply($sb, 'sqlite');
+same('the SQLite migrations apply to an empty file', ['0001', '0002', '0003'], $applied);
+same('a second run applies nothing', [], mig_apply($sb, 'sqlite'));
+$sqliteShape = static function (PDO $p): array {
+    $out = [];
+    $tables = $p->query("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name <> 'schema_migrations' ORDER BY name")->fetchAll(PDO::FETCH_COLUMN); // dialect-ok: compares two SQLite scratch files
+    foreach ($tables as $t) {
+        foreach ($p->query('PRAGMA table_info("' . $t . '")') as $c) { // dialect-ok: compares two SQLite scratch files
+            $out[$t][$c['name']] = strtoupper((string) $c['type']) . ($c['notnull'] ? ' NOT NULL' : '') . ($c['pk'] ? ' PK' : '');
+        }
+        ksort($out[$t]);
+    }
+    $out['(indexes)'] = $p->query("SELECT name FROM sqlite_master WHERE type = 'index' AND name NOT LIKE 'sqlite_%' ORDER BY name")->fetchAll(PDO::FETCH_COLUMN); // dialect-ok: compares two SQLite scratch files
+    return $out;
+};
+$shapeA = $sqliteShape($sa);
+$shapeB = $sqliteShape($sb);
+// One known difference on SQLite (owner, 2026-10-11, Q-07): the live database
+// gained lab_id on equipment and export_batches through ALTER TABLE, so the
+// column is nullable in the SQLite migrations, while schema.php declares it NOT
+// NULL. Migration 0002 makes it required on PostgreSQL only; the owner left the
+// SQLite file alone. Listed here so the check fails the day the difference grows
+// or disappears unannounced.
+$knownDrift = ['equipment.lab_id', 'export_batches.lab_id'];
+$drift = [];
+$diff = [];
+foreach (array_unique(array_merge(array_keys($shapeA), array_keys($shapeB))) as $t) {
+    if ($t === '(indexes)') {
+        if ($shapeA[$t] !== $shapeB[$t]) {
+            $diff[] = 'indexes: ' . implode(' ', array_diff($shapeA[$t], $shapeB[$t])) . ' / ' . implode(' ', array_diff($shapeB[$t], $shapeA[$t]));
+        }
+        continue;
+    }
+    foreach (array_unique(array_merge(array_keys($shapeA[$t] ?? []), array_keys($shapeB[$t] ?? []))) as $c) {
+        $x = $shapeA[$t][$c] ?? 'missing';
+        $y = $shapeB[$t][$c] ?? 'missing';
+        if ($x === $y) {
+            continue;
+        }
+        if (str_replace(' NOT NULL', '', $x) === str_replace(' NOT NULL', '', $y)) {
+            $drift[] = "$t.$c";
+        } else {
+            $diff[] = "$t.$c ($x / $y)";
+        }
+    }
+}
+ok('schema.php and the SQLite migrations build the same tables, columns, types and indexes', $diff === [], implode(', ', $diff));
+same('and differ in nullability only where open question Q-07 says', $knownDrift, $drift);
+
+// A migration file that changes after it was applied stops the runner.
+$migCopy = $pgd . '/migrations';
+@mkdir($migCopy, 0777, true);
+foreach (glob(mig_dir() . '/*.sql') as $f) {
+    copy($f, $migCopy . '/' . basename($f));
+}
+file_put_contents($migCopy . '/0001_baseline.sqlite.sql', "\n-- edited after it ran\n", FILE_APPEND);
+$st = mig_status($sb, 'sqlite', $migCopy);
+ok('an applied migration that was edited afterwards is reported', count($st['problems']) === 1, implode('; ', $st['problems']));
+refuses('and the runner refuses to run past it', fn () => mig_apply($sb, 'sqlite', $migCopy));
+$sb = null;
+
+if (db_driver() === 'pgsql') {
+    // The PostgreSQL test database was built from the migrations at the top
+    // of this run. Its columns must match schema.php's, type for type.
+    $st = mig_status(db(), 'pgsql');
+    ok('the PostgreSQL test database records every migration and has none pending',
+        $st['pending'] === [] && $st['problems'] === [] && count($st['applied']) === count($st['found']));
+    $typeMap = ['INTEGER' => 'integer', 'REAL' => 'double precision', 'TEXT' => 'text', 'DATE' => 'date'];
+    $pgCols = [];
+    foreach (db_all("SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns
+                     WHERE table_schema = 'public' AND table_name <> 'schema_migrations'") as $r) {
+        $pgCols[$r['table_name']][$r['column_name']] = $r['data_type'] . ($r['is_nullable'] === 'NO' ? ' NOT NULL' : '');
+    }
+    $mismatch = [];
+    foreach ($sa->query("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")->fetchAll(PDO::FETCH_COLUMN) as $t) { // dialect-ok: reads the SQLite scratch file built from schema.php
+        foreach ($sa->query('PRAGMA table_info("' . $t . '")') as $c) { // dialect-ok: reads the SQLite scratch file built from schema.php
+            $want = ($typeMap[strtoupper((string) $c['type'])] ?? '?') . (($c['notnull'] || $c['pk']) ? ' NOT NULL' : '');
+            $have = $pgCols[$t][$c['name']] ?? 'missing';
+            $nullOnly = str_replace(' NOT NULL', '', $have) === str_replace(' NOT NULL', '', $want);
+            if ($have !== $want && !($nullOnly && in_array("$t.{$c['name']}", $knownDrift, true))) {
+                $mismatch[] = "$t.{$c['name']} ($have vs $want)";
+            }
+            unset($pgCols[$t][$c['name']]);
+        }
+        if (empty($pgCols[$t])) {
+            unset($pgCols[$t]);
+        }
+    }
+    foreach ($pgCols as $t => $cols) {
+        foreach (array_keys($cols) as $c) {
+            $mismatch[] = "$t.$c only in PostgreSQL";
+        }
+    }
+    ok('the PostgreSQL migrations build every schema.php column with the same type and nullability (apart from Q-07)',
+        $mismatch === [], implode(', ', $mismatch));
+    $pgIdx = db_all("SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND left(indexname, 4) = 'idx_' ORDER BY indexname");
+    same('and the same named indexes', array_values(array_filter($shapeA['(indexes)'], fn ($i) => str_starts_with($i, 'idx_'))),
+        array_column($pgIdx, 'indexname'));
+}
+$sa = null;
+$rm($pgd);
+
+// Backups follow the driver. On PostgreSQL the SQLite file still exists and a
+// VACUUM INTO copy of it would succeed nightly while saving nothing current.
+$backupPs = (string) file_get_contents(APP_ROOT . '/tools/backup.ps1');
+ok('tools/backup.ps1 hands a PostgreSQL installation to tools/pg-backup.php',
+    str_contains($backupPs, 'pg-backup.php') && str_contains($backupPs, "-eq 'pgsql'"));
+ok('and stops, rather than guess SQLite, when it cannot read the driver',
+    (bool) preg_match('/brace -lt 0\) \{ throw /', $backupPs));
+ok('the supervisor counts a PostgreSQL dump as today\'s backup',
+    str_contains((string) file_get_contents(APP_ROOT . '/tools/supervisor.ps1'), "'.pgdump'"));
+
+// PostgreSQL lives on the drive, never on the computer (platform D-028, D-013):
+// the estate cluster on 127.0.0.1:5433, its client programs from the estate's
+// runtime, and the launchers start and stop it.
+$envPhp = (string) file_get_contents(APP_ROOT . '/includes/env.php');
+ok('the PostgreSQL DSN defaults to the drive\'s cluster on port 5433',
+    str_contains($envPhp, "getenv('PGPORT') ?: '5433'"));
+$pgBackup = (string) file_get_contents(APP_ROOT . '/tools/pg-backup.php');
+ok('tools/pg-backup.php takes pg_dump and pg_restore from the estate runtime and never from the computer\'s Program Files',
+    str_contains($pgBackup, 'lab_estate_pg_bin()') && !preg_match('/ProgramFiles|Program Files/i', $pgBackup)
+    && str_contains($pgBackup, "'5433'"));
+$estateDir = lab_estate_dir();
+ok('lab_estate_dir() names the folder holding .estate-live, or null outside the estate',
+    $estateDir === null || is_file($estateDir . DIRECTORY_SEPARATOR . '.estate-live'), (string) $estateDir);
+$epgPs = (string) file_get_contents(APP_ROOT . '/tools/estate-pg.ps1');
+$epgWrong = [];
+foreach (['estate-pg.js', '.estate-live', '$PgPort = 5433', "'127.0.0.1'", 'runtime\postgresql\17\bin', 'data\postgres',
+          '-m fast', '-w -t 60', 'PG_VERSION', 'PGTZ', '--other-sessions'] as $needle) {
+    if (!str_contains($epgPs, $needle)) {
+        $epgWrong[] = "lacks $needle";
+    }
+}
+if (preg_match('/5432|Program Files|ProgramFiles|postgresql-x64|\b[A-Za-z]:\\\\/i', $epgPs)) {
+    $epgWrong[] = 'names the computer\'s PostgreSQL or a drive letter';
+}
+ok('tools/estate-pg.ps1 mirrors estate-pg.js (port 5433, the drive\'s data folder, a fast clean stop) and names no drive letter',
+    $epgWrong === [], implode(', ', $epgWrong));
+ok('the launchers start the drive\'s cluster (ensure-running.ps1) and stop it after the server (stop.ps1)',
+    str_contains((string) file_get_contents(APP_ROOT . '/tools/ensure-running.ps1'), "'estate-pg.ps1') start")
+    && str_contains((string) file_get_contents(APP_ROOT . '/tools/stop.ps1'), "'estate-pg.ps1') stop"));
+$showOut =shell_exec(escapeshellarg(PHP_BINARY) . ' ' . (php_ini_loaded_file() ? '-c ' . escapeshellarg((string) php_ini_loaded_file()) . ' ' : '')
+    . '-d ' . escapeshellarg('extension_dir=' . ini_get('extension_dir')) . ' ' . escapeshellarg(APP_ROOT . '/tools/config.php') . ' show --json');
+$show = json_decode(substr((string) $showOut, (int) strpos((string) $showOut, '{')), true);
+ok('tools/config.php show reports the effective driver for the scripts that follow it',
+    is_array($show) && in_array($show['driver'] ?? '', ['sqlite', 'pgsql'], true), (string) $showOut);
+
+// Every include and every migration ships: install.php on PostgreSQL applies
+// the migrations from the server's own copy.
+$shipText = (string) file_get_contents(APP_ROOT . '/tools/build-release.ps1');
+$unshipped = [];
+foreach (array_merge(glob(APP_ROOT . '/includes/*.php') ?: [], glob(APP_ROOT . '/migrations/*.sql') ?: []) as $f) {
+    $rel = basename(dirname($f)) . '\\' . basename($f);
+    if (!str_contains($shipText, "'" . $rel . "'")) {
+        $unshipped[] = $rel;
+    }
+}
+ok('every include and every numbered migration is on the ship list', $unshipped === [], implode(', ', $unshipped));
+
+// The built-in server's router (tools/router.php) refuses what Apache and IIS
+// refuse through .htaccess and web.config. Without it, php -S hands out /.env.
+require_once APP_ROOT . '/tools/router.php';
+$mustDeny = ['/.env', '/.ENV', '/%2eenv', '/.git/config', '/data/lab.sqlite', '/DATA./lab.sqlite',
+             '/tools/php/php.ini', '/migrations/0001_baseline.pgsql.sql', '/config.local.json',
+             '/tests/run-tests.php', '/START%20HERE.bat', '/admin/../.env', '/MIGRAT~1/x.sql', '/x.pgdump'];
+$mustAllow = ['/', '/index.php', '/report.php?from=2026-01-01', '/admin/login.php', '/assets/style.css',
+              '/assets/calendar.js', '/health.php?db=1', '/api.php'];
+$wrong = array_merge(
+    array_map(fn ($u) => "$u allowed", array_filter($mustDeny, fn ($u) => !lab_router_denies($u))),
+    array_map(fn ($u) => "$u refused", array_filter($mustAllow, fn ($u) => lab_router_denies($u)))
+);
+ok('the built-in server refuses dotfiles, data, tools, tests and migrations, and serves the pages and assets',
+    $wrong === [], implode(', ', $wrong));
+ok('and the supervisor starts it with that router',
+    str_contains((string) file_get_contents(APP_ROOT . '/tools/supervisor.ps1'), "'router.php'"));
+
+// ---------------------------------------------------------------------------
+heading('NetID identity: the campus proxy says who, role grants say what (D-015)');
+
+// Which mode, from where.
+same('with nothing set the mode is password, as before', 'password', auth_mode_from(null, null, null, null));
+same('the harness constant outranks everything', 'local', auth_mode_from('local', 'proxy', 'password', null));
+same('a server\'s own environment outranks config.local.json', 'proxy', auth_mode_from(null, 'proxy', 'local', 'password'));
+same('config.local.json outranks an environment file', 'local', auth_mode_from(null, null, 'local', 'proxy'));
+same('a value that is not a mode fails closed to proxy, never open', 'proxy', auth_mode_from(null, 'pasword', null, null));
+refuses('config.local.json refuses an authMode that is not a mode', fn () => lab_config_save(['authMode' => 'open']));
+ok('the container image runs in the proxy mode unless its env file says otherwise',
+    (bool) preg_match('/^ENV PACELAB_AUTH_MODE=proxy$/m', (string) file_get_contents(APP_ROOT . '/Dockerfile')));
+
+// What the proxy says, read without touching the database.
+$proxySet = ['identity_header' => 'X-Forwarded-Email', 'identity_domains' => 'illinois.edu',
+             'groups_header' => 'X-Forwarded-Groups', 'trusted_proxies' => '', 'unlisted_role' => 'member'];
+$who = auth_proxy_identity(['HTTP_X_FORWARDED_EMAIL' => ' configure-me@example.edu ',
+    'HTTP_X_FORWARDED_GROUPS' => 'PRI-PaCE Staff, pri-pace-admins,,pri-pace-admins'], $proxySet);
+same('a university address becomes its NetID, lower case', 'eruiz2', $who['netid'] ?? null);
+same('the groups arrive lower case, trimmed, once each', ['pri-pace staff', 'pri-pace-admins'], $who['groups'] ?? null);
+same('no identity header is 401', 401, auth_proxy_identity([], $proxySet)['status'] ?? null);
+same('an address outside the university is 403', 403,
+    auth_proxy_identity(['HTTP_X_FORWARDED_EMAIL' => 'someone@example.org'], $proxySet)['status'] ?? null);
+same('an identity that is not a NetID is 403', 403,
+    auth_proxy_identity(['HTTP_X_FORWARDED_EMAIL' => '<b>x</b>@illinois.edu'], $proxySet)['status'] ?? null);
+same('a proxy that passes the bare NetID works through PACELAB_IDENTITY_HEADER', 'jdoe2',
+    auth_proxy_identity(['HTTP_X_FORWARDED_USER' => 'jdoe2'], ['identity_header' => 'X-Forwarded-User'] + $proxySet)['netid'] ?? null);
+same('PACELAB_GROUPS_HEADER=none ignores any groups header', [],
+    auth_proxy_identity(['HTTP_X_FORWARDED_EMAIL' => 'configure-me@example.edu', 'HTTP_X_FORWARDED_GROUPS' => 'x'],
+        ['groups_header' => 'none'] + $proxySet)['groups'] ?? null);
+$trusted = ['trusted_proxies' => '10.20.0.0/16, 192.168.5.0/25'] + $proxySet;
+ok('with PACELAB_TRUSTED_PROXIES a request from the proxy is read',
+    isset(auth_proxy_identity(['REMOTE_ADDR' => '10.20.30.40', 'HTTP_X_FORWARDED_EMAIL' => 'configure-me@example.edu'], $trusted)['netid']));
+same('and a request from anywhere else is 403 even with the header', 403,
+    auth_proxy_identity(['REMOTE_ADDR' => '10.21.0.1', 'HTTP_X_FORWARDED_EMAIL' => 'configure-me@example.edu'], $trusted)['status'] ?? null);
+ok('the address ranges are compared bit by bit',
+    auth_ip_allowed('192.168.5.127', '192.168.5.0/25') && !auth_ip_allowed('192.168.5.128', '192.168.5.0/25')
+    && auth_ip_allowed('fd00::1', 'fd00::/8') && !auth_ip_allowed('fe80::1', 'fd00::/8') && !auth_ip_allowed('garbage', '10.0.0.0/8'));
+
+// The development sign-in: this computer only.
+$loop = ['REMOTE_ADDR' => '127.0.0.1'];
+same('the development sign-in runs in the local mode, over loopback, on the built-in server', null,
+    auth_dev_login_problem($loop, 'local', 'cli-server'));
+ok('and over IPv6 loopback', auth_dev_login_problem(['REMOTE_ADDR' => '::1'], 'local', 'cli-server') === null);
+ok('it is refused in the proxy mode', auth_dev_login_problem($loop, 'proxy', 'cli-server') !== null);
+ok('and in the password mode', auth_dev_login_problem($loop, 'password', 'cli-server') !== null);
+ok('and on any request that came through a proxy',
+    auth_dev_login_problem($loop + ['HTTP_X_FORWARDED_FOR' => '10.1.1.1'], 'local', 'cli-server') !== null
+    && auth_dev_login_problem($loop + ['HTTP_X_FORWARDED_EMAIL' => 'configure-me@example.edu'], 'local', 'cli-server') !== null);
+ok('and under Apache, which is what Radiant runs', auth_dev_login_problem($loop, 'local', 'apache2handler') !== null);
+ok('and from another computer', auth_dev_login_problem(['REMOTE_ADDR' => '192.168.1.20'], 'local', 'cli-server') !== null);
+
+// Role grants in the database, through the proxy mode.
+$asProxy = function (string $email, string $groups = ''): void {
+    unset($_SERVER['HTTP_X_FORWARDED_EMAIL'], $_SERVER['HTTP_X_FORWARDED_GROUPS'], $_SERVER['HTTP_X_FORWARDED_FOR']);
+    if ($email !== '') {
+        $_SERVER['HTTP_X_FORWARDED_EMAIL'] = $email;
+    }
+    if ($groups !== '') {
+        $_SERVER['HTTP_X_FORWARDED_GROUPS'] = $groups;
+    }
+    unset($_SESSION['lab_id']);
+    auth_principal(true);
+};
+auth_mode('proxy');
+ok('migration 0003 built role_grants here', roles_table_ready());
+$_SESSION['admin_user_id'] = 1;             // a password-mode session left behind
+$_SESSION['admin_last_seen'] = time();
+$asProxy('configure-me@example.edu');
+same('the NetID is the identity', 'nobody1', current_user_name());
+ok('nobody types a name any more', !identity_is_self_declared());
+ok('a password-mode session does not make a NetID an administrator', !is_admin());
+ok('a password sign-in is refused', str_contains((string) admin_login('root', 'a-long-enough-password'), 'NetID'));
+set_current_user_name('Somebody Else');
+same('and a typed name cannot replace the NetID', 'nobody1', current_user_name());
+$asProxy('');
+ok('without the proxy header nobody is signed in', auth_principal() === null && auth_problem()[1] === 401 && !is_admin());
+
+$gAdmin = role_grant('netid', 'padmin', 'admin', null, 'seeded', ROLE_CONSOLE);
+$asProxy('configure-me@example.edu');
+ok('an admin grant on the NetID opens the administrative panel', is_admin());
+same('and stamps records with the NetID', 'padmin', admin_display_name());
+ok('but not the Studio', !auth_may_edit_code() && !can_edit_code());
+refuses('nobody grants code editing to themselves',
+    fn () => role_grant('netid', 'padmin', 'code_editor', null, '', 'padmin'));
+$gCode = role_grant('netid', 'padmin', 'code_editor', null, '', 'otheradmin');
+auth_principal(true);
+ok('another administrator can grant it, and then the Studio opens', auth_may_edit_code() && can_edit_code());
+refuses('the same grant twice is refused', fn () => role_grant('netid', 'padmin', 'admin', null, '', ROLE_CONSOLE));
+refuses('only a member grant names a laboratory', fn () => role_grant('netid', 'padmin', 'admin', $labA, '', ROLE_CONSOLE));
+refuses('a role that does not exist is refused', fn () => role_grant('netid', 'x1', 'superuser', null, '', ROLE_CONSOLE));
+refuses('and the database refuses one written past the code',
+    fn () => db_run('INSERT INTO role_grants (principal_kind, principal, role, granted_at) VALUES (?, ?, ?, ?)',
+        ['netid', 'x1', 'superuser', date('Y-m-d H:i:s')]));
+refuses('as it refuses a principal in capitals',
+    fn () => db_run('INSERT INTO role_grants (principal_kind, principal, role, granted_at) VALUES (?, ?, ?, ?)',
+        ['netid', 'X1', 'admin', date('Y-m-d H:i:s')]));
+
+$gGroup = role_grant('group', 'pri-pace-admins', 'admin', null, '', ROLE_CONSOLE);
+$asProxy('configure-me@example.edu', 'Other Group, PRI-PACE-ADMINS');
+ok('an admin grant on a campus group makes its members administrators', is_admin());
+$asProxy('configure-me@example.edu');
+ok('the same NetID without the group is not one', !is_admin());
+refuses('nobody grants code editing to a group they belong to',
+    fn () => role_grant('group', 'pri-pace-admins', 'code_editor', null, '', 'gadmin', ['pri-pace-admins']));
+
+role_grant('group', 'alpha-lab', 'member', $labA, '', ROLE_CONSOLE);
+$asProxy('configure-me@example.edu', 'alpha-lab');
+same('a member grant on a group puts its people in that laboratory', [$labA],
+    array_map('intval', array_column(labs_for_person(), 'lab_id')));
+same('and that laboratory is in view', $labA, current_lab_id());
+ok('they still cannot step into the other laboratory', !may_use_lab($labB));
+ok('or reach its instrument by id', equipment_by_id($cytoB) === null && equipment_by_id($icpA) !== null);
+ok('or its grant', grant_by_id($grantB) === null && grant_by_id($grantA) !== null);
+ok('and a member is not an administrator', !is_admin());
+$asProxy('configure-me@example.edu');
+ok('lab_members keyed by NetID still decides membership', may_use_lab($labA) && may_use_lab($labB));
+$asProxy('configure-me@example.edu');
+same('a NetID in no laboratory sees none', 0, count(labs_for_person()));
+$p = auth_principal();
+ok('PACELAB_UNLISTED_ROLE=member lets that NetID in to see nothing, as a typed name could',
+    !auth_unlisted_refused($p, 'member'));
+ok('PACELAB_UNLISTED_ROLE=none turns it away', auth_unlisted_refused($p, 'none'));
+$asProxy('configure-me@example.edu', 'alpha-lab');
+ok('but not someone a group grant names', !auth_unlisted_refused(auth_principal(), 'none'));
+$asProxy('configure-me@example.edu');
+ok('nor someone listed in a laboratory', !auth_unlisted_refused(auth_principal(), 'none'));
+
+// Revoking keeps the row and the panel.
+role_revoke($gGroup, 'padmin');
+$asProxy('configure-me@example.edu', 'pri-pace-admins');
+ok('a revoked group grant stops working', !is_admin());
+ok('and the row stays, stamped', role_grant_by_id($gGroup)['revoked_by'] === 'padmin');
+refuses('nobody revokes a grant naming themselves from a browser', fn () => role_revoke($gAdmin, 'padmin'));
+role_revoke($gCode, 'otheradmin');
+refuses('nobody revokes the last grant that opens the panel', fn () => role_revoke($gAdmin, 'otheradmin'));
+same('which still holds', 1, roles_admin_grant_count());
+
+// The development sign-in, end to end.
+define('LAB_TEST_SAPI', 'cli-server');
+auth_mode('local');
+unset($_SESSION['dev_netid'], $_SESSION['dev_last_seen']);
+$_SERVER['REMOTE_ADDR'] = '127.0.0.1';
+unset($_SERVER['HTTP_X_FORWARDED_EMAIL'], $_SERVER['HTTP_X_FORWARDED_GROUPS'], $_SERVER['HTTP_X_FORWARDED_FOR']);
+auth_principal(true);
+ok('the local mode starts signed out', auth_principal() === null && auth_problem()[1] === 401);
+same('the development sign-in takes a NetID', null, dev_login('PAdmin'));
+ok('and then the grants apply exactly as behind the proxy', current_user_name() === 'padmin' && is_admin());
+$_SERVER['HTTP_X_FORWARDED_FOR'] = '10.1.1.1';
+auth_principal(true);
+ok('the same session through a proxy is refused', auth_principal() === null && !is_admin() && auth_problem()[1] === 403);
+ok('and cannot sign in again', dev_login('padmin') !== null);
+unset($_SERVER['HTTP_X_FORWARDED_FOR']);
+$_SESSION['dev_last_seen'] = time() - ADMIN_IDLE_TIMEOUT - 5;
+auth_principal(true);
+ok('thirty idle minutes end the development session too', auth_principal() === null && empty($_SESSION['dev_netid']));
+
+// The owner's command, on a scratch SQLite file.
+$rolesDb = $tempRoot . DIRECTORY_SEPARATOR . 'roles-cli-' . getmypid() . '.sqlite';
+@unlink($rolesDb);
+$rp = new PDO('sqlite:' . $rolesDb, null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+foreach (schema_statements() as $sql) {
+    $rp->exec($sql);
+}
+$rp->exec("INSERT INTO labs (code, name, created_at) VALUES ('AAA', 'Alpha Lab', '2026-10-12 00:00:00')"); // db-calls: allow literal fixture on the scratch file
+$rp->exec("INSERT INTO lab_members (lab_id, person_key, display_name, created_at) VALUES (1, 'ruiz', 'Elena Ruiz', '2026-10-12 00:00:00')"); // db-calls: allow literal fixture on the scratch file
+$rp = null;
+$rolesCli = function (array $args) use ($rolesDb): array {
+    $cmd = [PHP_BINARY];
+    if (php_ini_loaded_file()) {
+        array_push($cmd, '-c', php_ini_loaded_file(), '-d', 'extension_dir=' . ini_get('extension_dir'));
+    }
+    $cmd = array_merge($cmd, [APP_ROOT . '/tools/roles.php'], $args);
+    $proc = proc_open($cmd, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, APP_ROOT);
+    $out = stream_get_contents($pipes[1]) . stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    return [proc_close($proc), $out];
+};
+[$c1, $o1] = $rolesCli(['--db', $rolesDb, 'grant', 'group:PRI-PaCE-Admins', 'admin', '--note', 'seed']);
+[$c2, $o2] = $rolesCli(['--db', $rolesDb, 'grant', 'eruiz2', 'member', '--lab', 'aaa']);
+[$c3, $o3] = $rolesCli(['--db', $rolesDb, 'list']);
+ok('tools/roles.php seeds a group grant and a laboratory member grant',
+    $c1 === 0 && $c2 === 0 && $c3 === 0 && str_contains($o3, 'group:pri-pace-admins') && str_contains($o3, 'AAA'), trim($o1 . $o2 . $o3));
+[$c4, $o4] = $rolesCli(['--db', $rolesDb, 'revoke', '1']);
+[$c5, $o5] = $rolesCli(['--db', $rolesDb, 'list']);
+ok('revokes from the console, and the list drops it', $c4 === 0 && !str_contains($o5, 'pri-pace-admins'), trim($o4 . $o5));
+[$c6, $o6] = $rolesCli(['--db', $rolesDb, 'rekey', 'AAA', 'ruiz', 'eruiz2']);
+[$c7, $o7] = $rolesCli(['--db', $rolesDb, 'members']);
+ok('rekey turns a typed member name into a NetID', $c6 === 0 && str_contains($o7, 'eruiz2') && !str_contains($o7, ' ruiz '), trim($o6 . $o7));
+[$c8, $o8] = $rolesCli(['--db', $rolesDb, 'grant', 'Not A NetID', 'admin']);
+ok('a principal that is neither a NetID nor a group is refused', $c8 === 1 && str_contains($o8, 'Refused'), trim($o8));
+[$c9, $o9] = $rolesCli(['--pg', 'live', 'grant', 'someone', 'admin']);
+ok('writing grants in the live database stops without --owner-approved, before connecting',
+    $c9 !== 0 && (str_contains($o9, 'Stop and ask') || str_contains($o9, 'No PostgreSQL credentials')), trim($o9));
+@unlink($rolesDb);
+
+// A fresh seed yields exactly one superadmin, the owner (D-016).
+$rp = new PDO('sqlite:' . $rolesDb, null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+foreach (schema_statements() as $sql) {
+    $rp->exec($sql);
+}
+$rp = null;
+[$s1, $so1] = $rolesCli(['--db', $rolesDb, 'seed']);
+[$s2, $so2] = $rolesCli(['--db', $rolesDb, 'seed']);
+$rp = new PDO('sqlite:' . $rolesDb, null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+$seeded = $rp->query('SELECT principal_kind, principal, role, lab_id, revoked_at FROM role_grants')->fetchAll(PDO::FETCH_ASSOC);
+$rp = null;
+ok('a fresh seed yields exactly one grant: dreslik as code_editor, the superadmin',
+    $s1 === 0 && count($seeded) === 1 && $seeded[0]['principal_kind'] === 'netid' && $seeded[0]['principal'] === 'dreslik'
+    && $seeded[0]['role'] === 'code_editor' && $seeded[0]['lab_id'] === null && $seeded[0]['revoked_at'] === null,
+    trim($so1) . ' ' . json_encode($seeded));
+ok('seeding twice changes nothing and says so', $s2 === 0 && str_contains($so2, 'Already in force'), trim($so2));
+ok('the owner constants name the NetID and email the owner gave',
+    ROLE_OWNER_NETID === 'dreslik' && ROLE_OWNER_EMAIL === 'configure-me@example.edu' && ROLE_OWNER_ROLE === 'code_editor');
+@unlink($rolesDb);
+
+// Back to the password mode for anything after this section.
+unset($_SESSION['dev_netid'], $_SESSION['dev_last_seen'], $_SESSION['admin_user_id'], $_SESSION['admin_last_seen']);
+auth_mode('password');
+ok('the password mode comes back unchanged', identity_is_self_declared() && auth_principal() === null);
 
 // ---------------------------------------------------------------------------
 // Done

@@ -28,6 +28,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($action === 'void') {
         $reason = trim((string) ($_POST['void_reason'] ?? ''));
+        if ($reason !== '' && needs_confirmation()) {
+            confirm_page('Void Record', 'Void this record? It stops counting on the report but stays in the table.',
+                         'Void Record', $_POST, 'records.php?edit=' . $usageId, true);
+        }
         if ($reason === '') {
             flash('A void needs a reason. Nothing was changed.', 'error');
             redirect('records.php?edit=' . $usageId);
@@ -40,14 +44,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($action === 'unvoid') {
+        if (needs_confirmation()) {
+            confirm_page('Restore Record', 'Restore this record so it counts again?', 'Restore',
+                         $_POST, 'records.php');
+        }
         db_run('UPDATE usage_records SET voided = 0, void_reason = \'\' WHERE usage_id = ?', [$usageId]);
         flash('Record #' . $usageId . ' restored. It counts on the report again.');
         redirect('records.php');
     }
 
     if ($action === 'unlock') {
+        if (needs_confirmation()) {
+            confirm_page('Unlock Record', 'Unlock this record and detach it from its export?',
+                         'Unlock', $_POST, 'records.php');
+        }
         db_run('UPDATE usage_records SET exported = 0, export_batch_id = NULL WHERE usage_id = ?', [$usageId]);
-        flash('Record #' . $usageId . ' unlocked and detached from its export batch. It will appear in the next monthly run.');
+        flash('Record #' . $usageId . ' unlocked and detached from its export. It will appear in the next monthly run.');
         redirect('records.php');
     }
 
@@ -63,7 +75,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $batch       = trim((string) ($_POST['batch_identifier'] ?? ''));
         $notes       = trim((string) ($_POST['notes'] ?? ''));
 
-        if (!equipment_by_id($equipmentId))                            { $errors[] = 'Choose an instrument.'; }
+        if (!equipment_by_id($equipmentId))                            { $errors[] = 'Choose equipment.'; }
         if (!grant_by_id($grantId)) { $errors[] = 'Choose a grant.'; }
         if (!$useDate)                                                 { $errors[] = 'Give a valid use date.'; }
         if ($count < 1)                                                { $errors[] = 'The count must be at least 1.'; }
@@ -132,9 +144,9 @@ $records   = db_all($sql, $params);
 $equipment = lab_equipment(false);
 $grants    = lab_grants(false);
 
-admin_header('records', 'Usage records');
+admin_header('records', 'Usage Records');
 ?>
-<h1>Usage records</h1>
+<h1>Usage Records</h1>
 <p class="lede">Correct a charge, or void it with a reason. Voided rows stay in the table and drop out of the report.</p>
 
 <?php foreach ($errors as $error): ?>
@@ -146,7 +158,9 @@ admin_header('records', 'Usage records');
   <div>
 <?php endif; ?>
 
-<form method="get" class="card report-filters">
+<?php accordion_open('records-filter', 'Narrow the List',
+    ['open' => true]); ?>
+<form method="get" class="report-filters">
   <div class="field">
     <label for="start">From</label>
     <input type="date" id="start" name="start" value="<?= h($filterStart) ?>">
@@ -156,7 +170,7 @@ admin_header('records', 'Usage records');
     <input type="date" id="end" name="end" value="<?= h($filterEnd) ?>">
   </div>
   <div class="field">
-    <label for="equipment_filter">Instrument</label>
+    <label for="equipment_filter">Equipment</label>
     <select id="equipment_filter" name="equipment_id">
       <option value="">All</option>
       <?php foreach ($equipment as $item): ?>
@@ -170,15 +184,16 @@ admin_header('records', 'Usage records');
     <label for="q">Operator, batch, notes, CFOPA</label>
     <input type="search" id="q" name="q" value="<?= h($filterText) ?>">
   </div>
-  <button type="submit" class="button">Filter</button>
+  <button type="submit" class="button button-small">Filter</button>
 </form>
+<?php accordion_close(); ?>
 
 <div class="card card-tight">
   <div class="table-wrap">
     <table class="data">
       <thead>
         <tr>
-          <th>#</th><th>Date</th><th>Instrument</th><th>Operator</th><th>CFOPA</th>
+          <th>#</th><th>Date</th><th>Equipment</th><th>Operator last name</th><th>CFOPA</th>
           <th class="num">Count</th><th class="num">Charge</th><th>Status</th><th></th>
         </tr>
       </thead>
@@ -197,18 +212,20 @@ admin_header('records', 'Usage records');
           <td class="num nowrap"><?= h(money($row['total_charge'])) ?></td>
           <td class="nowrap">
             <?php if ((int) $row['voided'] === 1): ?>
-              <span class="pill pill-error">voided</span>
+              <span class="pill pill-error">Voided</span>
             <?php elseif ((int) $row['exported'] === 1): ?>
-              <span class="pill pill-locked">batch <?= (int) $row['export_batch_id'] ?></span>
+              <span class="pill pill-locked">Exported</span>
+              <span class="muted">export <?= (int) $row['export_batch_id'] ?></span>
             <?php else: ?>
-              <span class="pill pill-ok">open</span>
+              <span class="pill">Pending</span>
             <?php endif; ?>
           </td>
           <td class="nowrap">
             <div class="button-row">
               <a class="button button-secondary button-small" href="?edit=<?= (int) $row['usage_id'] ?>">Open</a>
               <?php if ((int) $row['voided'] === 1): ?>
-                <form method="post" onsubmit="return confirm('Restore this record so it counts again?');">
+                <form method="post" data-confirm="Restore this record so it counts again?"
+                      data-confirm-ok="Restore">
                   <?= csrf_field() ?>
                   <input type="hidden" name="usage_id" value="<?= (int) $row['usage_id'] ?>">
                   <input type="hidden" name="action" value="unvoid">
@@ -216,7 +233,8 @@ admin_header('records', 'Usage records');
                 </form>
               <?php endif; ?>
               <?php if ((int) $row['exported'] === 1 && (int) $row['voided'] === 0): ?>
-                <form method="post" onsubmit="return confirm('Unlock this record and detach it from its export batch?');">
+                <form method="post" data-confirm="Unlock this record and detach it from its export?"
+                      data-confirm-ok="Unlock">
                   <?= csrf_field() ?>
                   <input type="hidden" name="usage_id" value="<?= (int) $row['usage_id'] ?>">
                   <input type="hidden" name="action" value="unlock">
@@ -252,7 +270,7 @@ admin_header('records', 'Usage records');
       <p class="hint">Entered <?= h(pretty_datetime($editing['created_at'])) ?>.</p>
 
       <div class="field">
-        <label for="e_equipment">Instrument</label>
+        <label for="e_equipment">Equipment</label>
         <select id="e_equipment" name="equipment_id" required>
           <?php foreach ($equipment as $item): ?>
             <option value="<?= (int) $item['equipment_id'] ?>" <?= (int) $editing['equipment_id'] === (int) $item['equipment_id'] ? 'selected' : '' ?>>
@@ -286,13 +304,13 @@ admin_header('records', 'Usage records');
       </div>
 
       <div class="field">
-        <label for="e_operator">Operator</label>
+        <label for="e_operator">Operator last name</label>
         <input type="text" id="e_operator" name="operator_name" required value="<?= h($editing['operator_name']) ?>">
       </div>
 
       <fieldset>
         <legend>Charge snapshot</legend>
-        <p class="hint">These were copied from the instrument when the entry was made. Change them only to fix a snapshot that was wrong at the time.</p>
+        <p class="hint">These were copied from the equipment when the entry was made. Change them only to fix a snapshot that was wrong at the time.</p>
         <div class="field-row">
           <div class="field">
             <label for="e_rate">Rate charged</label>
@@ -324,24 +342,26 @@ admin_header('records', 'Usage records');
       </div>
 
       <div class="form-actions">
-        <button type="submit" class="button">Save correction</button>
+        <button type="submit" class="button">Save Correction</button>
         <a class="link-quiet" href="records.php">Cancel</a>
       </div>
     </form>
 
     <?php if ((int) $editing['voided'] === 0): ?>
-    <form method="post" class="card form" onsubmit="return confirm('Void this record? It stops counting on the report but stays in the table.');">
+    <form method="post" class="card form"
+          data-confirm="Void this record? It stops counting on the report but stays in the table."
+          data-confirm-ok="Void Record" data-confirm-danger>
       <?= csrf_field() ?>
       <input type="hidden" name="action" value="void">
       <input type="hidden" name="usage_id" value="<?= (int) $editing['usage_id'] ?>">
-      <h2 class="card-heading">Void this record</h2>
+      <h2 class="card-heading">Void This Record</h2>
       <div class="field">
         <label for="void_reason">Reason</label>
         <textarea id="void_reason" name="void_reason" required placeholder="Why this charge should not be billed."></textarea>
         <p class="hint">Stored with your name against the record.</p>
       </div>
       <div class="form-actions">
-        <button type="submit" class="button button-danger">Void record</button>
+        <button type="submit" class="button button-danger">Void Record</button>
       </div>
     </form>
     <?php endif; ?>

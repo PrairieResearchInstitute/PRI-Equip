@@ -17,9 +17,14 @@ require_admin();
 function editable_settings(): array
 {
     return [
+        'app_name' => [
+            'label' => 'Application name',
+            'hint'  => 'Shown in the header, in the footer, and in the browser tab of every screen.',
+            'type'  => 'text',
+        ],
         'lab_name' => [
             'label' => 'Laboratory name',
-            'hint'  => 'Shown in the header and the browser tab of every screen.',
+            'hint'  => 'The name this installation was given when it was set up.',
             'type'  => 'text',
         ],
         'unit_name' => [
@@ -73,7 +78,7 @@ function editable_settings(): array
             'type'  => 'text',
         ],
 
-        // Everybody who uses the instruments. Told when one goes out of
+        // Everybody who uses the equipment. Told when one goes out of
         // service, because their afternoon has just changed.
         'lab_group_name' => [
             'label' => 'Laboratory group: name',
@@ -84,7 +89,7 @@ function editable_settings(): array
         'lab_group_email' => [
             'label' => 'Laboratory group: email',
             'hint'  => 'A distribution list is best. Several addresses separated by commas also work. '
-                     . 'Told when an instrument goes out of service. Leave blank to turn that off.',
+                     . 'Told when equipment goes out of service. Leave blank to turn that off.',
             'type'  => 'email_list',
             'group' => 'Who gets told',
         ],
@@ -93,13 +98,13 @@ function editable_settings(): array
         // and opens the mail client; it never sends anything itself.
         'equipment_contact_name' => [
             'label' => 'Equipment person: name',
-            'hint'  => 'Told when an instrument is retired.',
+            'hint'  => 'Told when equipment is retired.',
             'type'  => 'text',
             'group' => 'Who gets told',
         ],
         'equipment_contact_email' => [
             'label' => 'Equipment person: email',
-            'hint'  => 'Retiring an instrument opens a message to this address in Outlook. Leave blank to turn that off.',
+            'hint'  => 'Retiring equipment opens a message to this address in Outlook. Leave blank to turn that off.',
             'type'  => 'email',
             'group' => 'Who gets told',
         ],
@@ -152,9 +157,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-admin_header('settings', 'Interface text');
+admin_header('settings', 'Interface Text');
 ?>
-<h1>Interface text</h1>
+<h1>Interface Text</h1>
 <p class="lede">Everything the laboratory rewords regularly. None of this requires a file edit or the web person.</p>
 
 <?php foreach ($errors as $error): ?>
@@ -183,14 +188,27 @@ admin_header('settings', 'Interface text');
   <?php endforeach; ?>
 
   <div class="form-actions">
-    <button type="submit" class="button">Save text</button>
+    <button type="submit" class="button">Save Text</button>
   </div>
 </form>
 
-<h2>What is deliberately not here</h2>
+<h2>What Is Not Here</h2>
 <div class="card">
-  <p>This panel does not edit PHP, JavaScript, HTML, or the stylesheet. A browser form that writes source files into a campus web directory is a remote code execution path: one leaked password or one cross-site scripting flaw would let an attacker run arbitrary code on a university server, and campus security offices treat such an interface as a finding.</p>
-  <p>Everything the laboratory changes regularly lives in the database instead, and this panel covers all of it: rates, equipment, grants, unit lists, labels, and page text. Code changes go through the web person editing files in the directory. Appearance changes touch <code>assets/style.css</code> alone, so a full visual redesign never touches application logic.</p>
+  <p>This screen edits text and nothing else. It writes rows in the database:
+  rates, equipment, grants, unit lists, labels and page wording. It writes no
+  file, so nothing typed here can change what the application does.</p>
+  <p>Code is edited in the <a href="studio.php">Studio</a>, which is a separate
+  screen behind a separate grant. Being an administrator does not open it. A
+  form that writes source files into a campus web directory is a way to run
+  code on a university server, so the Studio keeps itself inside the
+  application folder, parses every file before it writes it, keeps the
+  previous copy, and records who changed what. Appearance alone lives in
+  <code>assets/style.css</code>.</p>
+</div>
+
+<h2>About</h2>
+<div class="card">
+  <p>Developed by M. J. Dreslik, with Claude Opus 5</p>
 </div>
 <?php
 page_footer();

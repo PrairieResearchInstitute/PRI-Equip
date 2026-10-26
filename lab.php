@@ -21,14 +21,14 @@ $today = date('Y-m-d');
 $now   = date('Y-m-d H:i:s');
 
 $stats = [
-    'instruments' => (int) db_value('SELECT COUNT(*) FROM equipment WHERE lab_id = ? AND active = 1', [current_lab_id()]),
+    'equipment' => (int) db_value('SELECT COUNT(*) FROM equipment WHERE lab_id = ? AND active = 1', [current_lab_id()]),
     'pending'     => (int) db_value('SELECT COUNT(*) FROM usage_records r JOIN equipment e ON e.equipment_id = r.equipment_id WHERE e.lab_id = ? AND r.exported = 0 AND r.voided = 0', [current_lab_id()]),
     'pending_amt' => (float) db_value('SELECT COALESCE(SUM(r.total_charge), 0) FROM usage_records r JOIN equipment e ON e.equipment_id = r.equipment_id WHERE e.lab_id = ? AND r.exported = 0 AND r.voided = 0', [current_lab_id()]),
     'today'       => (int) db_value('SELECT COUNT(*) FROM usage_records r JOIN equipment e ON e.equipment_id = r.equipment_id WHERE e.lab_id = ? AND r.use_date = ? AND r.voided = 0', [current_lab_id(), $today]),
     'booked'      => (int) db_value('SELECT COUNT(*) FROM reservations res JOIN equipment e ON e.equipment_id = res.equipment_id WHERE e.lab_id = ? AND res.end_datetime >= ?', [current_lab_id(), $now]),
 ];
 
-// What is on an instrument right now, and what is coming up today.
+// What is on equipment right now, and what is coming up today.
 $onNow = db_all(
     'SELECT r.*, e.name AS equipment_name FROM reservations r
        JOIN equipment e ON e.equipment_id = r.equipment_id
@@ -60,16 +60,16 @@ if (have_user_name()) {
 
 page_header(current_lab_name(), ['nav' => 'lab']);
 ?>
-<h2><?= h(current_lab_name()) ?></h2>
+<h1><?= h(current_lab_name()) ?></h1>
 <p class="lede"><?= h(setting('home_instructions',
-  'Log equipment use, book time on an instrument, and produce the monthly charge report.')) ?></p>
+  'Log equipment use, book time on equipment, and produce the monthly charge report.')) ?></p>
 
 <?php render_alerts(equipment_alerts(), 'Needs attention', 6); ?>
 
 <div class="totals-strip">
   <div class="total-tile">
-    <div class="label">Instruments</div>
-    <div class="value"><?= $stats['instruments'] ?></div>
+    <div class="label">Equipment</div>
+    <div class="value"><?= $stats['equipment'] ?></div>
     <p class="hint">available to book and charge</p>
   </div>
   <div class="total-tile">
@@ -79,7 +79,7 @@ page_header(current_lab_name(), ['nav' => 'lab']);
   <div class="total-tile">
     <div class="label">In use now</div>
     <div class="value"><?= count($onNow) ?></div>
-    <p class="hint"><?= $stats['booked'] ?> bookings ahead</p>
+    <p class="hint"><?= $stats['booked'] ?> reservations ahead</p>
   </div>
   <div class="total-tile">
     <div class="label">Waiting to bill</div>
@@ -91,20 +91,20 @@ page_header(current_lab_name(), ['nav' => 'lab']);
 <h2>What do you want to do?</h2>
 <div class="grid-cards">
   <a class="card" href="index.php">
-    <h3>Record equipment use</h3>
-    <p>Log a run against a grant. The rate and the receiving account come from the instrument, and the total is worked out before you save.</p>
+    <h3>Use Entry</h3>
+    <p>Log a run against a grant. The rate and the receiving subaccount come from the equipment, and the total is worked out before you save.</p>
   </a>
   <a class="card" href="schedule.php">
-    <h3>Book instrument time</h3>
+    <h3>Calendar</h3>
     <p>A week at a glance, half hour by half hour. Drag down a day to book, drag a block to move it. First come, first served.</p>
   </a>
   <a class="card" href="report.php">
-    <h3>Monthly billing report</h3>
-    <p>Charges grouped by account and instrument, with the CSV the business office needs.</p>
+    <h3>Billing Report</h3>
+    <p>Charges grouped by account and equipment, with the CSV the business office needs.</p>
   </a>
   <a class="card" href="admin/index.php">
     <h3>Administration</h3>
-    <p>Instruments, grants, rates, corrections, and the wording on every screen. Behind a password.</p>
+    <p>Equipment, grants, rates, corrections, and the wording on every screen. Administrators only.</p>
   </a>
 </div>
 
@@ -118,11 +118,11 @@ page_header(current_lab_name(), ['nav' => 'lab']);
   </p>
   <div class="table-wrap">
     <table class="data">
-      <thead><tr><th>Instrument</th><th>Held by</th><th>From</th><th>Until</th><th>Purpose</th></tr></thead>
+      <thead><tr><th>Equipment</th><th>Held by</th><th>From</th><th>Until</th><th>Purpose</th></tr></thead>
       <tbody>
       <?php foreach ($onNow as $r): ?>
         <tr>
-          <td><strong><?= h($r['equipment_name']) ?></strong> <span class="pill pill-ok">in use</span></td>
+          <td><strong><?= h($r['equipment_name']) ?></strong> <span class="pill pill-ok">In Use</span></td>
           <td><?= h($r['reserved_by']) ?></td>
           <td class="nowrap"><?= h(date('g:i a', strtotime($r['start_datetime']))) ?></td>
           <td class="nowrap"><?= h(date('g:i a', strtotime($r['end_datetime']))) ?></td>
@@ -145,12 +145,12 @@ page_header(current_lab_name(), ['nav' => 'lab']);
 <?php endif; ?>
 
 <?php if ($myRecent): ?>
-<?php accordion_open('home-mine', 'Your recent entries', [
+<?php accordion_open('home-mine', 'Your Recent Entries', [
     'meta' => count($myRecent) . ' most recent, as ' . current_user_name(),
 ]); ?>
   <div class="table-wrap">
     <table class="data">
-      <thead><tr><th>Date</th><th>Instrument</th><th>Account</th><th class="num">Count</th><th class="num">Charge</th><th></th></tr></thead>
+      <thead><tr><th>Date</th><th>Equipment</th><th>Account</th><th class="num">Count</th><th class="num">Charge</th><th></th></tr></thead>
       <tbody>
       <?php foreach ($myRecent as $r): ?>
         <tr>
@@ -161,7 +161,7 @@ page_header(current_lab_name(), ['nav' => 'lab']);
           <td class="num nowrap"><?= h(money($r['total_charge'])) ?></td>
           <td class="nowrap">
             <?php if ((int) $r['exported'] === 1): ?>
-              <span class="pill pill-locked">billed</span>
+              <span class="pill pill-locked">Exported</span>
             <?php else: ?>
               <a class="button button-secondary button-small" href="index.php?edit=<?= (int) $r['usage_id'] ?>">Edit</a>
             <?php endif; ?>

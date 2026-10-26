@@ -1,0 +1,17 @@
+{
+  "protected": [
+    "../../data/pacelab-equip/data/lab.sqlite",
+    "../../data/pacelab-equip/data/.installed",
+    "../../data/pacelab-equip/data/.htaccess",
+    "../../data/pacelab-equip/backups",
+    "data/lab.sqlite",
+    "data/.installed",
+    "config.local.json",
+    ".env",
+    "../../data/pacelab-equip/pg.env",
+    "tools/php"
+  ],
+  "except": [],
+  "generated": [],
+  "reason": "lab.sqlite and .installed are the live PaCELab Equip data and the installer lock (without the lock install.php runs again). On the drive they live outside the repository in ..\\..\\data\\pacelab-equip\\data, the dataFolder named in config.local.json (platform D-014); change them only through the app, after a backup. The backups folder holds the daily VACUUM INTO copies; only tools\\backup.ps1 writes or prunes it. config.local.json holds this copy's settings; only tools\\config.php (SETUP.bat) writes it. .env may hold the PostgreSQL password: never open, copy or print it. tools\\php is the bundled Windows PHP runtime, not source. pg.env beside the data folder holds the PostgreSQL credentials (platform pg-provision.ps1, D-010): never open, copy or print it; the application reads it through includes/env.php."
+}

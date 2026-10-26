@@ -14,9 +14,14 @@ require_once __DIR__ . '/includes/schema.php';
 $lockFile = dirname(LAB_DB_PATH) . '/.installed';
 
 // --- The lock --------------------------------------------------------------
-if (file_exists($lockFile)) {
-    page_header('Already installed', ['chromeless' => true, 'mainClass' => 'page narrow']);
-    echo '<h1>Already installed</h1>';
+// On PostgreSQL the database outlives any lock file, so a database that already
+// holds administrators counts as installed too: the installer never runs over
+// a populated database because a lock file went missing.
+$pgPopulated = db_driver() === 'pgsql' && db_installed()
+    && (int) db_value('SELECT COUNT(*) FROM admin_users') > 0;
+if (file_exists($lockFile) || $pgPopulated) {
+    page_header('Already Installed', ['chromeless' => true, 'mainClass' => 'page narrow']);
+    echo '<h1>Already Installed</h1>';
     echo '<p class="lede">This application has been installed and the installer has locked itself.</p>';
     echo '<p>Delete <code>' . h(basename(dirname($lockFile)) . '/.installed') . '</code> only if you intend to install over the existing database.</p>';
     echo '<p><a class="button" href="index.php">Open the application</a></p>';
@@ -44,11 +49,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (!$errors) {
         try {
-            $pdo = db();
-            $pdo->beginTransaction();
+            if (db_driver() === 'pgsql') {
+                // PostgreSQL builds from the numbered migrations, the same files
+                // tools/migrate.php applies, each in its own transaction, so
+                // this runs before the seeding transaction opens. A database
+                // the owner already migrated has nothing pending.
+                require_once __DIR__ . '/includes/db_migrations.php';
+                mig_apply(db(), 'pgsql');
+            }
 
-            foreach (schema_statements() as $sql) {
-                $pdo->exec($sql);
+            db_begin();
+
+            if (db_driver() === 'sqlite') {
+                foreach (schema_statements() as $sql) {
+                    db_exec($sql);
+                }
             }
 
             $now = date('Y-m-d H:i:s');
@@ -77,7 +92,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 [$username, password_hash($password, PASSWORD_DEFAULT), $display ?: $username, $now]
             );
 
-            $pdo->commit();
+            db_commit();
 
             // Make sure the database file itself is not downloadable. Two files
             // because two servers: .htaccess is Apache, web.config is IIS, and
@@ -99,20 +114,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             @file_put_contents($lockFile, "Installed " . $now . "\n");
 
-            flash('Installation finished. Add your instruments and grants next.', 'success');
+            flash('Installation finished. Add your equipment and grants next.', 'success');
             redirect('admin/login.php');
         } catch (Throwable $e) {
-            if (isset($pdo) && $pdo->inTransaction()) {
-                $pdo->rollBack();
+            if (db_in_transaction()) {
+                db_rollback();
             }
             $errors[] = 'Installation failed: ' . $e->getMessage();
         }
     }
 }
 
-page_header('Install', ['chromeless' => true, 'mainClass' => 'page narrow']);
+page_header('Installation', ['chromeless' => true, 'mainClass' => 'page narrow']);
 ?>
-<h1>Install the equipment system</h1>
+<h1>Installation</h1>
 <p class="lede">This creates the database, seeds the survey unit list and the on-screen wording, and registers the first administrator. It runs once and then locks itself.</p>
 
 <?php if (!file_exists(__DIR__ . '/check.php')): ?>
@@ -160,7 +175,7 @@ page_header('Install', ['chromeless' => true, 'mainClass' => 'page narrow']);
   </div>
 
   <div class="form-actions">
-    <button type="submit" class="button">Create the database</button>
+    <button type="submit" class="button">Create the Database</button>
   </div>
 </form>
 

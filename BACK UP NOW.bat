@@ -5,9 +5,11 @@ REM
 REM  A backup is taken automatically once a day while the server is running, so
 REM  you should not normally need this. Use it before anything risky.
 REM
-REM  Backups go to the "PaCELab Equip Backups" folder beside this one. To send
-REM  them somewhere else - Taiga, once this is on the server - put that path on
-REM  a single line in data\backup-path.txt.
+REM  Backups go to backupFolder in config.local.json (on the drive, the backups
+REM  folder beside the data), otherwise to the "PaCELab Equip Backups" folder
+REM  beside this one. To send them somewhere else - Taiga, once this is on the
+REM  server - put that path on a single line in backup-path.txt in the data
+REM  folder.
 REM ===========================================================================
 
 cd /d "%~dp0"

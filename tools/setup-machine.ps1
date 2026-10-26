@@ -12,6 +12,7 @@
 $ErrorActionPreference = 'Stop'
 
 $root    = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'paths.ps1')
 $startup = [Environment]::GetFolderPath('Startup')
 $desktop = [Environment]::GetFolderPath('Desktop')
 $ws      = New-Object -ComObject WScript.Shell
@@ -42,24 +43,34 @@ if ($offline) {
     Write-Host '  the green ticks before relying on this.'
 }
 
-# --- start at logon ----------------------------------------------------------
-$lnk = $ws.CreateShortcut((Join-Path $startup 'Shared Lab Equipment.lnk'))
-$lnk.TargetPath       = 'powershell.exe'
-$lnk.Arguments        = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' +
-                        (Join-Path $root 'tools\ensure-running.ps1') + '"'
-$lnk.WorkingDirectory = $root
-$lnk.WindowStyle      = 7
-$lnk.Description      = 'Keeps the Shared Laboratory Equipment server running'
-$lnk.Save()
-Write-Host "  Starts at logon : yes  ($startup)"
+# --- start at logon, and something to click ----------------------------------
+# Neither shortcut names this folder or its drive (drive-invariance R5): both
+# run the estate launcher open-app.vbs through Get-LabShortcutArgs, which
+# finds the drive under whatever letter it has today. Without open-app.vbs
+# (another computer) no shortcut is written. Both name tools\ensure-running.ps1,
+# which open-app.vbs runs through a hidden PowerShell (platform D-037, D-038:
+# no .vbs launcher); the Desktop shortcut adds -Open to open the browser.
+$logonArgs = Get-LabShortcutArgs 'tools\ensure-running.ps1'
+$openArgs  = Get-LabShortcutArgs 'tools\ensure-running.ps1'
+if ($openArgs) { $openArgs += ' -Open' }
+if ($logonArgs -and $openArgs) {
+    $lnk = $ws.CreateShortcut((Join-Path $startup 'Shared Lab Equipment.lnk'))
+    $lnk.TargetPath       = $LabWscript
+    $lnk.Arguments        = $logonArgs
+    $lnk.WindowStyle      = 7
+    $lnk.Description      = 'Keeps the Shared Laboratory Equipment server running'
+    $lnk.Save()
+    Write-Host "  Starts at logon : yes  ($startup)"
 
-# --- something to click ------------------------------------------------------
-$d = $ws.CreateShortcut((Join-Path $desktop 'Shared Lab Equipment.lnk'))
-$d.TargetPath       = Join-Path $root 'START HERE.bat'
-$d.WorkingDirectory = $root
-$d.Description      = 'Open the Shared Laboratory Equipment system'
-$d.Save()
-Write-Host "  Desktop shortcut: yes  ($desktop)"
+    $d = $ws.CreateShortcut((Join-Path $desktop 'Shared Lab Equipment.lnk'))
+    $d.TargetPath       = $LabWscript
+    $d.Arguments        = $openArgs
+    $d.Description      = 'Open the Shared Laboratory Equipment system'
+    $d.Save()
+    Write-Host "  Desktop shortcut: yes  ($desktop)"
+} else {
+    Write-Host '  Shortcuts       : none written (the estate launcher open-app.vbs is not on this computer); start the application with START HERE.bat in its folder.'
+}
 
 # --- and start it now --------------------------------------------------------
 Write-Host ''
@@ -68,12 +79,13 @@ Write-Host '  Starting it...'
 if ($LASTEXITCODE -eq 0) {
     Write-Host '  Running at http://localhost:8147/' -ForegroundColor Green
 } else {
-    Write-Host '  It did not start. See data\server.log.' -ForegroundColor Red
+    Write-Host ('  It did not start. See ' + (Join-Path (Get-LabDataDir) 'server.log') + '.') -ForegroundColor Red
 }
 
 # --- the thing that will actually bite ---------------------------------------
-$db = Join-Path $root 'data\lab.sqlite'
-if (Test-Path $db) {
+$dataDir = Get-LabDataDir
+$db = Join-Path $dataDir 'lab.sqlite'
+if ((Test-Path $db) -and ($db -like '*OneDrive*')) {
     Write-Host ''
     Write-Host '  One warning worth reading' -ForegroundColor Yellow
     Write-Host '  -------------------------'
@@ -86,7 +98,7 @@ if (Test-Path $db) {
 }
 
 # --- has that already happened? ----------------------------------------------
-$conflicts = Get-ChildItem (Join-Path $root 'data') -Filter '*lab*' -ErrorAction SilentlyContinue |
+$conflicts = Get-ChildItem $dataDir -Filter '*lab*' -ErrorAction SilentlyContinue |
              Where-Object { $_.Name -ne 'lab.sqlite' -and $_.Name -like '*lab*.sqlite*' }
 if ($conflicts) {
     Write-Host ''

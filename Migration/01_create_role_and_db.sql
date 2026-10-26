@@ -1,7 +1,8 @@
--- Run this ONCE as the postgres superuser, on the local development machine
--- and again later on Radiant.
+-- Run this ONCE as the postgres superuser, on the estate cluster on the drive
+-- (127.0.0.1:5433, platform D-028; psql from the estate runtime), and again
+-- later on Radiant.
 --
---   psql -U postgres -h 127.0.0.1 -f Migration/01_create_role_and_db.sql \
+--   <estate>\runtime\postgresql\17\bin\psql -U postgres -h 127.0.0.1 -p 5433 -f Migration/01_create_role_and_db.sql \
 --        -v approle_password="'choose-something'"
 --
 -- Replace the password. It is passed on the command line rather than written

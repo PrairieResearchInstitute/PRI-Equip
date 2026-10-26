@@ -65,17 +65,17 @@ if (identity_is_self_declared() && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_P
 }
 
 if (identity_is_self_declared() && !have_user_name()) {
-    page_header('Who is using the laboratory?', ['nav' => 'entry', 'mainClass' => 'page narrow']);
+    page_header('Operator Last Name', ['nav' => 'entry', 'mainClass' => 'page narrow']);
     ?>
     <div class="identity-gate">
-      <h1>Your last name</h1>
-      <p class="lede">Entries and bookings are recorded under this name for the rest of the session.</p>
+      <h1>Operator Last Name</h1>
+      <p class="lede">Entries and reservations are recorded under this name for the rest of the session.</p>
       <form method="post" class="card form">
         <?= csrf_field() ?>
         <input type="hidden" name="action" value="identify">
         <input type="hidden" name="next" value="<?= h(safe_return_to($_GET['next'] ?? null, 'index.php')) ?>">
         <div class="field">
-          <label for="user_name">Last name</label>
+          <label for="user_name">Operator last name</label>
           <input type="text" id="user_name" name="user_name" required autofocus autocomplete="family-name">
         </div>
         <div class="form-actions">
@@ -120,9 +120,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save'
 
     // Everything is checked here on the server. The browser's copy of these
     // rules exists for convenience alone.
-    if (!$equipment)            { $errors[] = 'Choose an instrument.'; }
+    if (!$equipment)            { $errors[] = 'Choose equipment.'; }
 
-    // An instrument that is out of service takes no new charges. A correction
+    // Equipment that is out of service takes no new charges. A correction
     // to a charge already recorded is allowed through: the run happened, and
     // refusing to fix its paperwork helps nobody.
     if ($equipment && !$existing && !equipment_is_usable($equipment)) {
@@ -136,11 +136,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save'
     if ($grant && $useDate) {
         if ($grant['end_date'] && $grant['end_date'] < $useDate) {
             $errors[] = 'Grant ' . $grant['cfopa'] . ' ended ' . pretty_date($grant['end_date'])
-                . ', before the date of this run. Ask an administrator which account should carry this charge — '
+                . ', before the date of this run. Ask an administrator which account should carry this charge: '
                 . 'the entry has not been saved.';
         } elseif ($grant['start_date'] && $grant['start_date'] > $useDate) {
             $errors[] = 'Grant ' . $grant['cfopa'] . ' did not begin until ' . pretty_date($grant['start_date'])
-                . ', after the date of this run. Ask an administrator which account should carry this charge — '
+                . ', after the date of this run. Ask an administrator which account should carry this charge: '
                 . 'the entry has not been saved.';
         } elseif ((int) $grant['active'] !== 1) {
             $errors[] = 'Grant ' . $grant['cfopa'] . ' is not available for charging. Ask an administrator.';
@@ -149,7 +149,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save'
 
     if (!$errors) {
         // On a correction the original snapshot stands, because it is what the
-        // charge was made at. Changing the instrument is a different charge, so
+        // charge was made at. Changing the equipment is a different charge, so
         // that case takes a fresh snapshot.
         $keepSnapshot = $existing && (int) $existing['equipment_id'] === $equipmentId;
 
@@ -194,9 +194,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save'
                          :batch_identifier, :notes, 0, 0, :created_at)',
                 $fields
             );
-            $newId = (int) db()->lastInsertId();
+            $newId = (int) db_last_id();
 
-            // A booking that led to this run stops asking to be recorded.
+            // A reservation that led to this run stops asking to be recorded.
             if ($reservation) {
                 db_run('UPDATE reservations SET usage_id = ? WHERE reservation_id = ? AND usage_id IS NULL',
                     [$newId, $reservation]);
@@ -246,10 +246,10 @@ if ($editing === null) {
     ];
 }
 
-// An instrument that is down stays in the list, greyed and unselectable, so a
+// Equipment that is down stays in the list, greyed and unselectable, so a
 // person looking for it learns why rather than wondering where it went.
 $equipment = lab_equipment(true);
-// The instrument on a record being corrected may since have been retired; it
+// The equipment on a record being corrected may since have been retired; it
 // still has to appear in the dropdown or the correction cannot be saved.
 if ($editing['equipment_id'] && !array_filter($equipment, fn($e) => (int) $e['equipment_id'] === (int) $editing['equipment_id'])) {
     $retired = equipment_by_id($editing['equipment_id']);
@@ -260,7 +260,7 @@ if ($editing['equipment_id'] && !array_filter($equipment, fn($e) => (int) $e['eq
 // changing the date of the run refilters the list without a page reload. The
 // server checks the dates again on submit regardless.
 $grants = lab_grants(true);
-// As with a retired instrument: the grant on a record being corrected has to
+// As with a retired equipment: the grant on a record being corrected has to
 // stay in the list even if it has since been retired.
 if ($editing['grant_id'] && !array_filter($grants, fn($g) => (int) $g['grant_id'] === (int) $editing['grant_id'])) {
     $retiredGrant = db_one(
@@ -290,11 +290,11 @@ if ($editing['reservation_id']) {
     );
 }
 
-page_header('Use entry', ['nav' => 'entry']);
+page_header('Use Entry', ['nav' => 'entry']);
 ?>
 <div class="page-head">
   <div>
-    <h1><?= h(setting('entry_title', 'Record equipment use')) ?></h1>
+    <h1><?= h(setting('entry_title', 'Use Entry')) ?></h1>
     <p class="lede"><?= h(setting('entry_instructions')) ?></p>
   </div>
 </div>
@@ -304,12 +304,12 @@ page_header('Use entry', ['nav' => 'entry']);
 <?php endforeach; ?>
 
 <?php if (!$equipment): ?>
-  <div class="flash flash-notice">No instruments are set up yet. An administrator adds them under <a href="admin/equipment.php">Administration &rarr; Equipment</a>.</div>
+  <div class="flash flash-notice">No equipment is set up yet. An administrator adds them under <a href="admin/equipment.php">Administration &rarr; Equipment</a>.</div>
 <?php endif; ?>
 
 <?php if ($reservationNote): ?>
   <div class="flash flash-success">
-    Recording use from your booking of <?= h($reservationNote['equipment_name']) ?>,
+    Recording use from your reservation of <?= h($reservationNote['equipment_name']) ?>,
     <?= h(pretty_datetime($reservationNote['start_datetime'])) ?>.
   </div>
 <?php endif; ?>
@@ -322,13 +322,13 @@ page_header('Use entry', ['nav' => 'entry']);
 
   <div class="card">
     <?php if ($editing['usage_id']): ?>
-      <h2 class="card-heading">Correcting entry #<?= (int) $editing['usage_id'] ?></h2>
+      <h2 class="card-heading">Correcting Entry #<?= (int) $editing['usage_id'] ?></h2>
     <?php endif; ?>
 
     <div class="field">
-      <label for="equipment_id">Instrument</label>
+      <label for="equipment_id">Equipment</label>
       <select id="equipment_id" name="equipment_id" required data-role="equipment">
-        <option value="">Choose an instrument&hellip;</option>
+        <option value="">Choose equipment&hellip;</option>
         <?php foreach ($equipment as $item): ?>
           <?php $unusable = !equipment_is_usable($item) && (int) $editing['equipment_id'] !== (int) $item['equipment_id']; ?>
           <option value="<?= (int) $item['equipment_id'] ?>"
@@ -339,8 +339,8 @@ page_header('Use entry', ['nav' => 'entry']);
                   <?= (int) $editing['equipment_id'] === (int) $item['equipment_id'] ? 'selected' : '' ?>>
             <?= h($item['name']) ?><?php
               if ((int) $item['active'] === 0) { echo ' (retired)'; }
-              elseif (equipment_is_down($item)) { echo ' — down, out of service'; }
-              elseif (($item['status'] ?? '') === 'service_due') { echo ' — service due'; }
+              elseif (equipment_is_down($item)) { echo ' · down, out of service'; }
+              elseif (($item['status'] ?? '') === 'service_due') { echo ' · service due'; }
             ?>
           </option>
         <?php endforeach; ?>
@@ -368,11 +368,11 @@ page_header('Use entry', ['nav' => 'entry']);
         <input type="text" id="rate_display" data-role="rate-display" readonly value="&mdash;">
       </div>
       <div class="field">
-        <label for="subaccount_display">Receiving account</label>
+        <label for="subaccount_display">Receiving subaccount</label>
         <input type="text" id="subaccount_display" data-role="subaccount-display" readonly value="&mdash;">
       </div>
     </div>
-    <p class="hint">Both come from the instrument record and are stored on this charge as they stand today.</p>
+    <p class="hint">Both come from the equipment record and are stored on this charge as they stand today.</p>
 
     <div class="field field-spaced">
       <label for="grant_id">Charge to grant</label>
@@ -413,17 +413,17 @@ page_header('Use entry', ['nav' => 'entry']);
       <div class="charge-bar-total">
         <span class="label">Total charge</span>
         <span class="charge-total" data-role="total">&mdash;</span>
-        <span class="charge-formula" data-role="formula">Choose an instrument and a count.</span>
+        <span class="charge-formula" data-role="formula">Choose equipment and a count.</span>
       </div>
       <dl class="charge-bar-meta">
         <div><dt>Rate</dt><dd data-role="meta-rate">&mdash;</dd></div>
         <div><dt>Unit</dt><dd data-role="meta-unit">&mdash;</dd></div>
-        <div><dt>Receiving account</dt><dd data-role="meta-subaccount">&mdash;</dd></div>
+        <div><dt>Receiving subaccount</dt><dd data-role="meta-subaccount">&mdash;</dd></div>
       </dl>
     </div>
 
     <div class="form-actions">
-      <button type="submit" class="button"><?= $editing['usage_id'] ? 'Save correction' : 'Record use' ?></button>
+      <button type="submit" class="button"><?= $editing['usage_id'] ? 'Save Correction' : 'Record Use' ?></button>
       <?php if ($editing['usage_id']): ?>
         <a class="link-quiet" href="index.php">Cancel</a>
       <?php endif; ?>
@@ -438,7 +438,7 @@ page_header('Use entry', ['nav' => 'entry']);
     <table class="data">
       <thead>
         <tr>
-          <th>Date</th><th>Instrument</th><th>Operator</th><th>Grant</th>
+          <th>Date</th><th>Equipment</th><th>Operator last name</th><th>Grant</th>
           <th class="num">Count</th><th class="num">Rate</th><th class="num">Charge</th><th></th>
         </tr>
       </thead>
@@ -462,9 +462,9 @@ page_header('Use entry', ['nav' => 'entry']);
           <td class="num nowrap"><?= h(money($row['total_charge'])) ?></td>
           <td class="nowrap">
             <?php if ((int) $row['voided'] === 1): ?>
-              <span class="pill pill-error">voided</span>
+              <span class="pill pill-error">Voided</span>
             <?php elseif ((int) $row['exported'] === 1): ?>
-              <span class="pill pill-locked">exported</span>
+              <span class="pill pill-locked">Exported</span>
             <?php else: ?>
               <a class="button button-secondary button-small" href="?edit=<?= (int) $row['usage_id'] ?>">Edit</a>
             <?php endif; ?>
@@ -475,6 +475,6 @@ page_header('Use entry', ['nav' => 'entry']);
     </table>
   </div>
 </div>
-<p class="hint">An exported charge is locked because the business office already has it. An administrator can reopen the export batch.</p>
+<p class="hint">An exported charge is locked because the business office already has it. An administrator can reopen the export.</p>
 <?php
 page_footer(['scripts' => ['assets/app.js']]);

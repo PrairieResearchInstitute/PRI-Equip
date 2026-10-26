@@ -61,3 +61,20 @@ data/.installed
 *.sqlite-journal
 *.db-wal
 *.db-shm
+
+# Portable-mode settings for this copy (includes/local-config.php); never committed
+config.local.json
+config.local.json.tmp
+
+# Reference material: specs, deployment notes, runtime readmes. Never pushed.
+reference/
+
+# drez-project-shape template entries
+*.env
+*.sqlite3-wal
+*.sqlite3-shm
+keys.dat
+*-DESKTOP-*
+.cache/
+CLAUDE.local.md
+docs/handoffs/

@@ -40,6 +40,13 @@ if (!db_installed()) {
     exit("The application is not installed yet. Run install.php first.\n");
 }
 
+// The NetID modes (D-015) ignore these accounts: administrators come from role
+// grants. Say so before anyone resets a password that opens nothing.
+if (auth_uses_netid()) {
+    echo "Note: this copy runs in the " . auth_mode() . " mode, where administrators come from role grants,\n"
+       . "not from these accounts. Use: php tools/roles.php --pg live list\n\n";
+}
+
 $argv    = $_SERVER['argv'];
 $command = $argv[1] ?? 'help';
 

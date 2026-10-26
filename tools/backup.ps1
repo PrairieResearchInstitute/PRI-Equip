@@ -12,8 +12,10 @@
 #     powershell -File tools\backup.ps1            normal nightly copy
 #     powershell -File tools\backup.ps1 -Restore   prove one can be restored
 #
-# Destination: the path in data\backup-path.txt if present, otherwise a folder
-# beside the application. Point it at Taiga once this is on the server.
+# Destination: the path in backup-path.txt in the data folder if present, then
+# backupFolder in config.local.json, then <data folder>\backups when
+# config.local.json names a data folder, otherwise a folder beside the
+# application. Point it at Taiga once this is on the server.
 
 param([switch]$Restore, [int]$KeepDays = 60)
 
@@ -24,18 +26,44 @@ $phpDir = Join-Path $root 'tools\php'
 $php    = Join-Path $phpDir 'php.exe'
 if (-not (Test-Path $php)) { $phpDir = Join-Path $env:LOCALAPPDATA 'php83'; $php = Join-Path $phpDir 'php.exe' }
 
-$db = Join-Path $root 'data\lab.sqlite'
+# On PostgreSQL the SQLite file still exists but the application no longer
+# writes it, so a VACUUM INTO copy would succeed every night while saving
+# nothing current (drez-pacelab-ops-runbook rule 6). Ask the application which
+# driver it uses and hand PostgreSQL to tools\pg-backup.php: pg_dump -Fc,
+# listed, restored into the test database and counted before it is kept.
+# When the answer cannot be read, stop rather than guess SQLite.
+$phpArgs = @('-c', (Join-Path $phpDir 'php.ini'), '-d', "extension_dir=$(Join-Path $phpDir 'ext')")
+$show = (& $php @phpArgs (Join-Path $PSScriptRoot 'config.php') show --json 2>$null) -join "`n"
+$brace = $show.IndexOf('{')
+if ($LASTEXITCODE -ne 0 -or $brace -lt 0) { throw "Could not read the database driver from tools\config.php show; no backup taken." }
+$driver = ($show.Substring($brace) | ConvertFrom-Json).driver
+if ($driver -eq 'pgsql') {
+    $pgArgs = @('--keep-days', $KeepDays)
+    if ($Restore) { $pgArgs = @('--restore-drill') }
+    & $php @phpArgs (Join-Path $PSScriptRoot 'pg-backup.php') @pgArgs
+    exit $LASTEXITCODE
+}
+
+# The data folder and the backup folder come from config.local.json through
+# paths.ps1. With no config.local.json: data\ and the sibling folder, as before.
+. (Join-Path $PSScriptRoot 'paths.ps1')
+$dataDir = Get-LabDataDir
+
+$db = Join-Path $dataDir 'lab.sqlite'
 if (-not (Test-Path $db)) { throw "No database at $db" }
 
-$pathFile = Join-Path $root 'data\backup-path.txt'
-if (Test-Path $pathFile) {
-    $dest = (Get-Content $pathFile -Raw).Trim()
-} else {
-    $dest = Join-Path (Split-Path -Parent $root) 'PaCELab Equip Backups'
+$dest = Get-LabBackupDir
+# Create the backup folder itself, never a chain of folders: a missing parent
+# means the drive is not connected or the path is stale (drive-invariance R3).
+if (-not (Test-Path -LiteralPath $dest -PathType Container)) {
+    $parent = Split-Path -Parent $dest
+    if (-not $parent -or -not (Test-Path -LiteralPath $parent -PathType Container)) {
+        throw "Backup folder not found at $dest, and its parent folder is missing too. Connect the drive that holds it and run the backup again."
+    }
+    New-Item -ItemType Directory -Path $dest | Out-Null
 }
-New-Item -ItemType Directory -Force -Path $dest | Out-Null
 
-$log = Join-Path $root 'data\backup.log'
+$log = Join-Path $dataDir 'backup.log'
 function Note($m) {
     $line = "{0}  {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $m
     try { Add-Content -Path $log -Value $line -Encoding utf8 } catch { }
@@ -79,7 +107,12 @@ if ($Restore) {
     if (-not $newest) { throw "No backup found in $dest" }
 
     Note "restore drill using $($newest.Name)"
-    $scratch = Join-Path ([IO.Path]::GetTempPath()) ("restore-drill-{0}.sqlite" -f $PID)
+    # On the drive, not %TEMP% on C: (owner standard B, D-007). The folder sits
+    # beside the data folder, so a drill copy is never inside what gets backed up.
+    $drillDir = Get-LabTempDir
+    if (-not $drillDir) { $drillDir = [IO.Path]::GetTempPath() }
+    New-Item -ItemType Directory -Force -Path $drillDir | Out-Null
+    $scratch = Join-Path $drillDir ("restore-drill-{0}.sqlite" -f $PID)
     Copy-Item $newest.FullName $scratch -Force
 
     $live = Counts $db

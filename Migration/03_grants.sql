@@ -1,6 +1,6 @@
 -- Run as the superuser AFTER 01_schema.sql.
 --
---   psql -U postgres -h 127.0.0.1 -d pacelab -f Migration/03_grants.sql
+--   <estate>\runtime\postgresql\17\bin\psql -U postgres -h 127.0.0.1 -p 5433 -d pacelab -f Migration/03_grants.sql
 --
 -- Least privilege: the application reads and writes rows and nothing else.
 -- It cannot create, alter or drop a table, so a defect cannot cost you the

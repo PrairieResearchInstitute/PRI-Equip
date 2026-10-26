@@ -1,9 +1,9 @@
 <?php
 /**
- * admin/reservations.php — Cancel or reassign any booking.
+ * admin/reservations.php — Cancel or reassign any reservation.
  *
  * The overlap rule that governs the calendar governs this page too: an
- * administrator moving a booking on top of another one is refused the same way
+ * administrator moving a reservation on top of another one is refused the same way
  * a laboratory user would be.
  */
 
@@ -23,13 +23,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $row    = $id ? db_one('SELECT * FROM reservations WHERE reservation_id = ?', [$id]) : null;
 
     if (!$row) {
-        flash('That booking no longer exists.', 'error');
+        flash('That reservation no longer exists.', 'error');
         redirect('reservations.php');
     }
 
     if ($action === 'cancel') {
+        if (needs_confirmation()) {
+            confirm_page('Cancel Reservation', 'Cancel this reservation?', 'Cancel Reservation',
+                         $_POST, 'reservations.php', true);
+        }
         db_run('DELETE FROM reservations WHERE reservation_id = ?', [$id]);
-        flash('Booking cancelled. ' . ($row['reserved_by'] ?: 'The holder') . ' is not notified by this application.');
+        flash('Reservation cancelled. ' . ($row['reserved_by'] ?: 'The holder') . ' is not notified by this application.');
         redirect('reservations.php');
     }
 
@@ -40,19 +44,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $end        = clean_slot_datetime($_POST['end_datetime'] ?? null);
         $equipId    = (int) ($_POST['equipment_id'] ?? 0);
 
-        if ($reservedBy === '')            { $errors[] = 'A booking needs a holder.'; }
+        if ($reservedBy === '')            { $errors[] = 'A reservation needs a holder.'; }
         if (!$start || !$end)              { $errors[] = 'Give a valid start and end.'; }
-        if (!equipment_by_id($equipId))    { $errors[] = 'Choose an instrument.'; }
-        if ($start && $end && $start >= $end) { $errors[] = 'The booking ends at or before it starts.'; }
+        if (!equipment_by_id($equipId))    { $errors[] = 'Choose equipment.'; }
+        if ($start && $end && $start >= $end) { $errors[] = 'The reservation ends at or before it starts.'; }
 
         if (!$errors) {
-            $pdo = db();
-            $pdo->beginTransaction();
+            db_begin();
             try {
                 $clash = reservation_conflict($equipId, $start, $end, $id);
                 if ($clash) {
-                    $pdo->rollBack();
-                    $errors[] = 'That span overlaps a booking held by ' . ($clash['reserved_by'] ?: 'someone else')
+                    db_rollback();
+                    $errors[] = 'That span overlaps a reservation held by ' . ($clash['reserved_by'] ?: 'someone else')
                         . ' from ' . pretty_datetime($clash['start_datetime']) . ' to ' . pretty_datetime($clash['end_datetime']) . '.';
                 } else {
                     db_run(
@@ -60,13 +63,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                           WHERE reservation_id = ?',
                         [$equipId, $reservedBy, $start, $end, $purpose, $id]
                     );
-                    $pdo->commit();
-                    flash('Booking updated.');
+                    db_commit();
+                    flash('Reservation updated.');
                     redirect('reservations.php');
                 }
             } catch (Throwable $e) {
-                if ($pdo->inTransaction()) { $pdo->rollBack(); }
-                $errors[] = 'The booking was not changed: ' . $e->getMessage();
+                if (db_in_transaction()) { db_rollback(); }
+                $errors[] = 'The reservation was not changed: ' . $e->getMessage();
             }
         }
         $editing = $row;
@@ -92,13 +95,13 @@ if ($filterEquip) {
 }
 $sql .= ' ORDER BY r.start_datetime ' . ($scope === 'past' ? 'DESC' : 'ASC') . ' LIMIT 300';
 
-$bookings  = db_all($sql, $params);
+$reservations  = db_all($sql, $params);
 $equipment = lab_equipment(false);
 
 admin_header('reservations', 'Reservations');
 ?>
 <h1>Reservations</h1>
-<p class="lede">Bookings are first come, first served. Cancelling here removes the block from the calendar; nobody is emailed.</p>
+<p class="lede">Reservations are first come, first served. Cancelling here removes the block from the calendar; nobody is emailed.</p>
 
 <?php foreach ($errors as $error): ?>
   <div class="flash flash-error"><?= h($error) ?></div>
@@ -106,7 +109,8 @@ admin_header('reservations', 'Reservations');
 
 <div class="<?= $editing ? "stack" : "" ?>">
   <div>
-    <form method="get" class="card report-filters">
+    <?php accordion_open('reservations-filter', 'Narrow the List', ['open' => true]); ?>
+    <form method="get" class="report-filters">
       <div class="field">
         <label for="scope">Showing</label>
         <select id="scope" name="scope">
@@ -115,7 +119,7 @@ admin_header('reservations', 'Reservations');
         </select>
       </div>
       <div class="field">
-        <label for="equipment_id">Instrument</label>
+        <label for="equipment_id">Equipment</label>
         <select id="equipment_id" name="equipment_id">
           <option value="">All</option>
           <?php foreach ($equipment as $item): ?>
@@ -125,20 +129,21 @@ admin_header('reservations', 'Reservations');
           <?php endforeach; ?>
         </select>
       </div>
-      <button type="submit" class="button">Filter</button>
+      <button type="submit" class="button button-small">Filter</button>
     </form>
+    <?php accordion_close(); ?>
 
     <div class="card card-tight">
       <div class="table-wrap">
         <table class="data">
           <thead>
-            <tr><th>Instrument</th><th>Held by</th><th>Start</th><th>End</th><th>Purpose</th><th>Use recorded</th><th></th></tr>
+            <tr><th>Equipment</th><th>Held by</th><th>Start</th><th>End</th><th>Purpose</th><th>Use recorded</th><th></th></tr>
           </thead>
           <tbody>
-          <?php if (!$bookings): ?>
-            <tr><td colspan="7" class="empty">No bookings match.</td></tr>
+          <?php if (!$reservations): ?>
+            <tr><td colspan="7" class="empty">No reservations match.</td></tr>
           <?php endif; ?>
-          <?php foreach ($bookings as $row): ?>
+          <?php foreach ($reservations as $row): ?>
             <tr>
               <td><?= h($row['equipment_name']) ?></td>
               <td><?= h($row['reserved_by']) ?></td>
@@ -155,7 +160,8 @@ admin_header('reservations', 'Reservations');
               <td class="nowrap">
                 <div class="button-row">
                   <a class="button button-secondary button-small" href="?edit=<?= (int) $row['reservation_id'] ?>&amp;scope=<?= h($scope) ?>">Edit</a>
-                  <form method="post" onsubmit="return confirm('Cancel this booking?');">
+                  <form method="post" data-confirm="Cancel this reservation?"
+                        data-confirm-ok="Cancel Reservation" data-confirm-danger>
                     <?= csrf_field() ?>
                     <input type="hidden" name="action" value="cancel">
                     <input type="hidden" name="reservation_id" value="<?= (int) $row['reservation_id'] ?>">
@@ -177,10 +183,10 @@ admin_header('reservations', 'Reservations');
     <input type="hidden" name="action" value="save">
     <input type="hidden" name="reservation_id" value="<?= (int) $editing['reservation_id'] ?>">
 
-    <h2 class="card-heading">Booking #<?= (int) $editing['reservation_id'] ?></h2>
+    <h2 class="card-heading">Reservation #<?= (int) $editing['reservation_id'] ?></h2>
 
     <div class="field">
-      <label for="r_equipment">Instrument</label>
+      <label for="r_equipment">Equipment</label>
       <select id="r_equipment" name="equipment_id" required>
         <?php foreach ($equipment as $item): ?>
           <option value="<?= (int) $item['equipment_id'] ?>" <?= (int) $editing['equipment_id'] === (int) $item['equipment_id'] ? 'selected' : '' ?>>
@@ -193,7 +199,7 @@ admin_header('reservations', 'Reservations');
     <div class="field">
       <label for="r_by">Held by</label>
       <input type="text" id="r_by" name="reserved_by" required value="<?= h($editing['reserved_by']) ?>">
-      <p class="hint">Changing this reassigns the booking.</p>
+      <p class="hint">Changing this reassigns the reservation.</p>
     </div>
 
     <div class="field-row">
@@ -216,7 +222,7 @@ admin_header('reservations', 'Reservations');
     </div>
 
     <div class="form-actions">
-      <button type="submit" class="button">Save booking</button>
+      <button type="submit" class="button">Save Reservation</button>
       <a class="link-quiet" href="reservations.php">Cancel</a>
     </div>
   </form>

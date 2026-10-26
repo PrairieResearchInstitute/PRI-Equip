@@ -21,6 +21,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'toggle') {
         $id  = (int) ($_POST['unit_id'] ?? 0);
         $row = db_one('SELECT * FROM units WHERE unit_id = ?', [$id]);
+        if ($row && needs_confirmation()) {
+            $hiding = (int) $row['active'] === 1;
+            confirm_page($hiding ? 'Hide Unit' : 'Show Unit',
+                         $hiding
+                             ? 'Hide ' . (string) $row['code'] . ' from the grant form? Grants already on it keep it.'
+                             : 'Offer ' . (string) $row['code'] . ' on the grant form again?',
+                         $hiding ? 'Hide' : 'Show', $_POST, 'units.php');
+        }
         if ($row) {
             db_run('UPDATE units SET active = ? WHERE unit_id = ?', [(int) $row['active'] === 1 ? 0 : 1, $id]);
             flash($row['code'] . ((int) $row['active'] === 1 ? ' hidden from the grant form.' : ' available again.'));
@@ -64,8 +72,8 @@ $all = db_all(
 
 admin_header('units', 'Units');
 ?>
-<h1>Survey units</h1>
-<p class="lede">The unit list offered when a grant is added.</p>
+<h1>Units</h1>
+<p class="lede">The survey unit list offered when a grant is added.</p>
 
 <?php foreach ($errors as $error): ?>
   <div class="flash flash-error"><?= h($error) ?></div>
@@ -89,7 +97,11 @@ admin_header('units', 'Units');
             <td><?= h($row['name']) ?></td>
             <td class="num"><?= (int) $row['grant_count'] ?></td>
             <td class="nowrap">
-              <form method="post">
+              <form method="post"
+                    data-confirm="<?= (int) $row['active'] === 1
+                        ? 'Hide ' . h($row['code']) . ' from the grant form? Grants already on it keep it.'
+                        : 'Offer ' . h($row['code']) . ' on the grant form again?' ?>"
+                    data-confirm-ok="<?= (int) $row['active'] === 1 ? 'Hide' : 'Show' ?>">
                 <?= csrf_field() ?>
                 <input type="hidden" name="unit_id" value="<?= (int) $row['unit_id'] ?>">
                 <input type="hidden" name="action" value="toggle">

@@ -16,18 +16,18 @@ function schema_statements(): array
     return [
 
         'CREATE TABLE IF NOT EXISTS units (
-            unit_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+            unit_id   INTEGER PRIMARY KEY AUTOINCREMENT, -- dialect-ok: SQLite schema; Migration/02_schema.sql and migrations/0001_baseline.pgsql.sql are the PostgreSQL twin
             code      TEXT NOT NULL,
             name      TEXT NOT NULL DEFAULT \'\',
             active    INTEGER NOT NULL DEFAULT 1
         )',
 
         // A laboratory. Everything a laboratory owns hangs off this row:
-        // instruments, grants, bookings, charges, costs, and the people it
+        // equipment, grants, reservations, charges, costs, and the people it
         // tells when something breaks. Adding a second laboratory adds a row
         // here and nothing else.
         'CREATE TABLE IF NOT EXISTS labs (
-            lab_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+            lab_id       INTEGER PRIMARY KEY AUTOINCREMENT, -- dialect-ok: SQLite schema; Migration/02_schema.sql and migrations/0001_baseline.pgsql.sql are the PostgreSQL twin
             code         TEXT NOT NULL UNIQUE,
             name         TEXT NOT NULL,
             description  TEXT NOT NULL DEFAULT \'\',
@@ -53,7 +53,7 @@ function schema_statements(): array
         // about the table changes — which is the point of keying it on the
         // same string the rest of the application already uses.
         'CREATE TABLE IF NOT EXISTS lab_members (
-            member_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+            member_id    INTEGER PRIMARY KEY AUTOINCREMENT, -- dialect-ok: SQLite schema; Migration/02_schema.sql and migrations/0001_baseline.pgsql.sql are the PostgreSQL twin
             lab_id       INTEGER NOT NULL REFERENCES labs(lab_id),
             person_key   TEXT NOT NULL,
             display_name TEXT NOT NULL DEFAULT \'\',
@@ -63,13 +63,13 @@ function schema_statements(): array
 
         // property_tag is the natural key PRI Facilities already uses for a
         // tagged item (its PropertyTag, shown as "university inventory
-        // number"). Carrying the same value here means an instrument can be
+        // number"). Carrying the same value here means equipment can be
         // matched between the two systems without either owning the other.
         'CREATE TABLE IF NOT EXISTS equipment (
-            equipment_id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            equipment_id        INTEGER PRIMARY KEY AUTOINCREMENT, -- dialect-ok: SQLite schema; Migration/02_schema.sql and migrations/0001_baseline.pgsql.sql are the PostgreSQL twin
             lab_id              INTEGER NOT NULL REFERENCES labs(lab_id),
             property_tag        TEXT NOT NULL DEFAULT \'\',
-            equip_class         TEXT NOT NULL DEFAULT \'instrument\',
+            equip_class         TEXT NOT NULL DEFAULT \'equipment\',
             name                TEXT NOT NULL,
             manufacturer        TEXT NOT NULL DEFAULT \'\',
             model               TEXT NOT NULL DEFAULT \'\',
@@ -81,7 +81,7 @@ function schema_statements(): array
             contact_person      TEXT NOT NULL DEFAULT \'\',
 
             -- Operational state, which is a different question from whether the
-            -- instrument is still on the books. An instrument that is down is
+            -- equipment is still on the books. Equipment that is down is
             -- still active: it is in the laboratory, it has a rate, and it has a
             -- charge history. It just cannot be booked or charged today.
             status              TEXT NOT NULL DEFAULT \'available\',
@@ -98,7 +98,7 @@ function schema_statements(): array
         // flag: a protected code is one the application itself branches on, so
         // it can be relabelled but not removed.
         'CREATE TABLE IF NOT EXISTS picklists (
-            picklist_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            picklist_id INTEGER PRIMARY KEY AUTOINCREMENT, -- dialect-ok: SQLite schema; Migration/02_schema.sql and migrations/0001_baseline.pgsql.sql are the PostgreSQL twin
             list_key    TEXT NOT NULL,
             code        TEXT NOT NULL,
             label       TEXT NOT NULL,
@@ -114,7 +114,7 @@ function schema_statements(): array
         // sub-account can be grouped under its parent without parsing at query
         // time.
         'CREATE TABLE IF NOT EXISTS grants (
-            grant_id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            grant_id              INTEGER PRIMARY KEY AUTOINCREMENT, -- dialect-ok: SQLite schema; Migration/02_schema.sql and migrations/0001_baseline.pgsql.sql are the PostgreSQL twin
             lab_id                INTEGER NOT NULL REFERENCES labs(lab_id),
             -- Unique within a laboratory, not across the institute: two
             -- laboratories charging the same award is normal, and each keeps
@@ -132,7 +132,7 @@ function schema_statements(): array
             created_at            TEXT NOT NULL
         )',
 
-        // What an instrument costs to keep running: consumables, repairs,
+        // What equipment costs to keep running: consumables, repairs,
         // parts, calibration, and the contracts that cover it. Set against the
         // charges it earns, this is what says whether a rate is right.
         //
@@ -140,7 +140,7 @@ function schema_statements(): array
         // bag of pipette tips: the money was spent once, but it buys a period,
         // and the end of that period is worth a warning.
         'CREATE TABLE IF NOT EXISTS equipment_costs (
-            cost_id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            cost_id         INTEGER PRIMARY KEY AUTOINCREMENT, -- dialect-ok: SQLite schema; Migration/02_schema.sql and migrations/0001_baseline.pgsql.sql are the PostgreSQL twin
             equipment_id    INTEGER NOT NULL REFERENCES equipment(equipment_id),
             cost_date       DATE NOT NULL,
             category        TEXT NOT NULL DEFAULT \'consumable\',
@@ -161,7 +161,7 @@ function schema_statements(): array
         // "opened" is the strongest thing it can honestly claim; the log says
         // that rather than pretending the message went.
         'CREATE TABLE IF NOT EXISTS email_log (
-            email_id     INTEGER PRIMARY KEY AUTOINCREMENT,
+            email_id     INTEGER PRIMARY KEY AUTOINCREMENT, -- dialect-ok: SQLite schema; Migration/02_schema.sql and migrations/0001_baseline.pgsql.sql are the PostgreSQL twin
             lab_id       INTEGER REFERENCES labs(lab_id),
             created_at   TEXT NOT NULL,
             created_by   TEXT NOT NULL DEFAULT \'\',
@@ -176,7 +176,7 @@ function schema_statements(): array
         )',
 
         'CREATE TABLE IF NOT EXISTS export_batches (
-            batch_id     INTEGER PRIMARY KEY AUTOINCREMENT,
+            batch_id     INTEGER PRIMARY KEY AUTOINCREMENT, -- dialect-ok: SQLite schema; Migration/02_schema.sql and migrations/0001_baseline.pgsql.sql are the PostgreSQL twin
             lab_id       INTEGER NOT NULL REFERENCES labs(lab_id),
             period_start DATE NOT NULL,
             period_end   DATE NOT NULL,
@@ -188,7 +188,7 @@ function schema_statements(): array
         )',
 
         'CREATE TABLE IF NOT EXISTS usage_records (
-            usage_id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            usage_id             INTEGER PRIMARY KEY AUTOINCREMENT, -- dialect-ok: SQLite schema; Migration/02_schema.sql and migrations/0001_baseline.pgsql.sql are the PostgreSQL twin
             equipment_id         INTEGER NOT NULL REFERENCES equipment(equipment_id),
             grant_id             INTEGER NOT NULL REFERENCES grants(grant_id),
             operator_name        TEXT NOT NULL DEFAULT \'\',
@@ -208,7 +208,7 @@ function schema_statements(): array
         )',
 
         'CREATE TABLE IF NOT EXISTS reservations (
-            reservation_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            reservation_id INTEGER PRIMARY KEY AUTOINCREMENT, -- dialect-ok: SQLite schema; Migration/02_schema.sql and migrations/0001_baseline.pgsql.sql are the PostgreSQL twin
             equipment_id   INTEGER NOT NULL REFERENCES equipment(equipment_id),
             reserved_by    TEXT NOT NULL DEFAULT \'\',
             start_datetime TEXT NOT NULL,
@@ -219,7 +219,7 @@ function schema_statements(): array
         )',
 
         'CREATE TABLE IF NOT EXISTS admin_users (
-            user_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id       INTEGER PRIMARY KEY AUTOINCREMENT, -- dialect-ok: SQLite schema; Migration/02_schema.sql and migrations/0001_baseline.pgsql.sql are the PostgreSQL twin
             username      TEXT NOT NULL UNIQUE,
             password_hash TEXT NOT NULL,
             display_name  TEXT NOT NULL DEFAULT \'\',
@@ -231,6 +231,23 @@ function schema_statements(): array
             may_edit_code INTEGER NOT NULL DEFAULT 0
         )',
 
+        // What a NetID or a campus group may do once the authenticating proxy
+        // (or the development sign-in) has said who the person is (D-015):
+        // member, admin or code_editor. Never deleted; revoking stamps the row.
+        // migrations/0003_role_grants.*.sql is the numbered twin.
+        'CREATE TABLE IF NOT EXISTS role_grants (
+            grant_id       INTEGER PRIMARY KEY AUTOINCREMENT, -- dialect-ok: SQLite schema; migrations/0003_role_grants.pgsql.sql is the PostgreSQL twin
+            principal_kind TEXT NOT NULL CHECK (principal_kind IN (\'netid\', \'group\')),
+            principal      TEXT NOT NULL CHECK (principal = lower(principal) AND principal <> \'\'),
+            role           TEXT NOT NULL CHECK (role IN (\'member\', \'admin\', \'code_editor\')),
+            lab_id         INTEGER REFERENCES labs(lab_id),
+            note           TEXT NOT NULL DEFAULT \'\',
+            granted_by     TEXT NOT NULL DEFAULT \'\',
+            granted_at     TEXT NOT NULL,
+            revoked_by     TEXT,
+            revoked_at     TEXT
+        )',
+
         'CREATE TABLE IF NOT EXISTS settings (
             "key"  TEXT PRIMARY KEY,
             value  TEXT NOT NULL DEFAULT \'\'
@@ -239,7 +256,7 @@ function schema_statements(): array
         // Sign-in throttling needs server-side state; a session cookie the
         // caller controls cannot slow anybody down.
         'CREATE TABLE IF NOT EXISTS login_attempts (
-            attempt_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+            attempt_id   INTEGER PRIMARY KEY AUTOINCREMENT, -- dialect-ok: SQLite schema; Migration/02_schema.sql and migrations/0001_baseline.pgsql.sql are the PostgreSQL twin
             ip           TEXT NOT NULL DEFAULT \'\',
             username     TEXT NOT NULL DEFAULT \'\',
             succeeded    INTEGER NOT NULL DEFAULT 0,
@@ -258,16 +275,23 @@ function schema_statements(): array
         'CREATE INDEX IF NOT EXISTS idx_equipment_lab    ON equipment (lab_id, active)',
         'CREATE INDEX IF NOT EXISTS idx_lab_members_key  ON lab_members (person_key)',
         'CREATE INDEX IF NOT EXISTS idx_attempts_time    ON login_attempts (attempted_at)',
+        'CREATE INDEX IF NOT EXISTS idx_role_grants_principal ON role_grants (principal_kind, principal)',
+        // The live database has carried these three since the cost and message
+        // screens arrived; a new installation lacked them until the PostgreSQL
+        // port compared schema.php with migrations/0001 (2026-10-10).
+        'CREATE INDEX IF NOT EXISTS idx_costs_equipment  ON equipment_costs (equipment_id, cost_date)',
+        'CREATE INDEX IF NOT EXISTS idx_email_log_time   ON email_log (created_at DESC)',
+        'CREATE INDEX IF NOT EXISTS idx_email_log_lab    ON email_log (lab_id, created_at DESC)',
 
-        // A tag identifies exactly one instrument, but most laboratories have
-        // instruments with no tag at all, so the blanks are exempt.
+        // A tag identifies exactly one piece of equipment, but most laboratories have
+        // equipment with no tag at all, so the blanks are exempt.
         'CREATE UNIQUE INDEX IF NOT EXISTS idx_equipment_tag ON equipment (property_tag) WHERE property_tag <> \'\'',
     ];
 }
 
 /**
  * The short code lists, seeded with the vocabulary PRI Facilities already uses
- * so the two systems describe an instrument the same way.
+ * so the two systems describe equipment the same way.
  */
 /**
  * Columns added after the first release.
@@ -298,7 +322,7 @@ function schema_migrate(): void
             } else {
                 // PRAGMA takes no parameters, hence the concatenation; $table
                 // comes from the literal list above, never from input.
-                $cols = db_all('PRAGMA table_info(' . $table . ')');
+                $cols = db_all('PRAGMA table_info(' . $table . ')'); // db-calls: allow table and column names come from the literal list in schema_migrate(), never from input; PRAGMA and ALTER take no parameters; dialect-ok: SQLite branch of schema_migrate(); the pgsql branch reads information_schema
             }
             foreach ($cols as $col) {
                 $have[$col['name']] = true;
@@ -311,7 +335,7 @@ function schema_migrate(): void
         }
         foreach ($columns as $name => $decl) {
             if (!isset($have[$name])) {
-                db_run('ALTER TABLE ' . $table . ' ADD COLUMN ' . $name . ' ' . $decl);
+                db_run('ALTER TABLE ' . $table . ' ADD COLUMN ' . $name . ' ' . $decl); // db-calls: allow table and column names come from the literal list in schema_migrate(), never from input; PRAGMA and ALTER take no parameters; dialect-ok: SQLite branch of schema_migrate(); the pgsql branch reads information_schema
             }
         }
     }
@@ -321,7 +345,7 @@ function seed_picklists(): array
 {
     return [
         // list_key,      code,            label,                              sort, protected
-        ['equip_class',  'instrument',    'Laboratory instrument',              10, 0],
+        ['equip_class',  'equipment',    'Laboratory equipment',              10, 0],
         ['equip_class',  'computer',      'Computer or peripheral',             20, 0],
         ['equip_class',  'field',         'Field equipment',                    30, 0],
         ['equip_class',  'vehicle',       'Vehicle',                            40, 0],
@@ -343,7 +367,7 @@ function seed_picklists(): array
         ['equip_status', 'down',          'Down, out of service',               30, 1],
         ['equip_status', 'retired',       'Retired',                            40, 1],
 
-        // What money spent on an instrument was spent on. Warranty and service
+        // What money spent on equipment was spent on. Warranty and service
         // contract are protected: the alert that says cover is running out
         // looks for exactly those two.
         ['cost_category', 'consumable',       'Consumables',                    10, 0],
@@ -375,6 +399,7 @@ function seed_units(): array
 function seed_settings(string $labName): array
 {
     return [
+        'app_name'            => 'PRI Shared Equipment',
         'lab_name'            => $labName,
         // The survey the application belongs to. It names the banner and the
         // footer, so another survey can run this same code by changing two
@@ -392,11 +417,11 @@ function seed_settings(string $labName): array
         'unit_name'           => 'Illinois Natural History Survey',
         'unit_url'            => 'https://inhs.illinois.edu',
         'footer_note'         => 'Illinois Natural History Survey, Prairie Research Institute.',
-        'entry_title'         => 'Record equipment use',
-        'entry_instructions'  => 'Choose the instrument, set the date of the run, and enter how many samples, hours, or runs it took. The rate and the account come from the instrument record.',
-        'schedule_title'      => 'Instrument calendar',
-        'schedule_instructions' => 'Drag down a day column to book time. Drag a block to move it, or drag an edge to change its length. Bookings are first come, first served.',
-        'report_title'        => 'Monthly billing report',
+        'entry_title'         => 'Use Entry',
+        'entry_instructions'  => 'Choose the equipment, set the date of the run, and enter how many samples, hours, or runs it took. The rate and the account come from the equipment record.',
+        'schedule_title'      => 'Calendar',
+        'schedule_instructions' => 'Drag down a day column to book time. Drag a block to move it, or drag an edge to change its length. Reservations are first come, first served.',
+        'report_title'        => 'Billing Report',
         'report_instructions' => 'The default range is last month and the default filter is records not yet exported, which together make the normal monthly run.',
         'admin_title'         => 'Administration',
     ];

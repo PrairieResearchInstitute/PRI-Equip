@@ -31,12 +31,25 @@ if ($LASTEXITCODE -ne 0) {
 # --- What ships --------------------------------------------------------------
 $files = @(
     'index.php', 'home.php', 'lab.php', 'schedule.php', 'report.php', 'api.php',
-    'check.php', 'install.php', 'admin-recovery.php',
+    'check.php', 'install.php', 'admin-recovery.php', 'health.php',
     'DEPLOY.md',
+    # The loader seeds config.local.json from this file, and DEPLOY.md tells a
+    # hoster to copy it. Without it the shipped loader is undocumented.
+    'config.template.json',
     'includes\auth.php', 'includes\db.php', 'includes\functions.php', 'includes\schema.php',
-    'includes\studio.php',
+    'includes\studio.php', 'includes\local-config.php',
+    # PostgreSQL settings (the PG* names, pg.env) and the migration runner that
+    # install.php uses on PostgreSQL, with the numbered migrations it applies.
+    'includes\env.php', 'includes\db_migrations.php',
+    'migrations\0001_baseline.pgsql.sql', 'migrations\0001_baseline.sqlite.sql',
+    'migrations\0002_lab_id_required.pgsql.sql', 'migrations\0002_lab_id_required.sqlite.sql',
+    # NetID identity and role grants (D-015).
+    'includes\roles.php', 'includes\roles-screen.php',
+    'migrations\0003_role_grants.pgsql.sql', 'migrations\0003_role_grants.sqlite.sql',
+    'migrations\.htaccess', 'migrations\web.config',
     'includes\.htaccess', 'includes\web.config',
-    'assets\style.css', 'assets\app.js', 'assets\calendar.js',
+    'assets\style.css', 'assets\app.js', 'assets\calendar.js', 'assets\dialog.js',
+    'assets\favicon.svg', 'assets\favicon.ico',
     'admin\index.php', 'admin\login.php', 'admin\logout.php', 'admin\labs.php',
     'admin\equipment.php', 'admin\grants.php', 'admin\records.php', 'admin\reservations.php',
     'admin\costs.php', 'admin\emails.php', 'admin\batches.php', 'admin\units.php',
@@ -48,7 +61,10 @@ $files = @(
 $forbidden = @('seed-demo.php', 'data', 'tools', '.git', '.github', '.claude', 'tests',
                'START HERE.bat', 'RUN TESTS.bat', 'BUILD FOR SERVER.bat',
                'FORGOT ADMIN PASSWORD.bat', 'STOP SERVER.bat',
-               'SETUP ON THIS PC.bat', 'BACK UP NOW.bat', 'AGENTS.md')
+               'SETUP ON THIS PC.bat', 'BACK UP NOW.bat', 'AGENTS.md',
+               'SETUP.bat', 'config.local.json', 'config.local.json.tmp',
+               'reference', 'Migration',
+               'Dockerfile', '.dockerignore', 'compose.yaml')
 
 if (Test-Path $out) { Remove-Item $out -Recurse -Force }
 New-Item -ItemType Directory -Path $out -Force | Out-Null
@@ -69,13 +85,12 @@ if ($missing.Count -gt 0) {
 
 # --- Anything in the project that is NOT on either list is a decision nobody
 #     has made yet. Say so, rather than silently shipping or silently omitting.
-$known = $files + $forbidden + @('README.docx', 'Shared_Lab_Equipment_System_Spec.docx',
-                                 '.gitignore', '.gitattributes', 'dist', 'config.php')
+$known = $files + $forbidden + @('.gitignore', '.gitattributes', 'dist', 'config.php')
 $unaccounted = @()
 foreach ($item in Get-ChildItem $root -Force) {
     if ($known -notcontains $item.Name) { $unaccounted += $item.Name }
 }
-$subdirs = @('includes', 'assets', 'admin')
+$subdirs = @('includes', 'assets', 'admin', 'migrations')
 $known  += $subdirs
 foreach ($sub in $subdirs) {
     foreach ($item in Get-ChildItem (Join-Path $root $sub) -Force) {

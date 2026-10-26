@@ -2,8 +2,8 @@
 /**
  * seed-demo.php — Dummy data for testing.
  *
- * Fills an installed but empty database with plausible instruments, grants,
- * bookings, and a few months of charges, so every screen has something to show.
+ * Fills an installed but empty database with plausible equipment, grants,
+ * reservations, and a few months of charges, so every screen has something to show.
  * Run it from a browser or from the command line. It is additive and safe to
  * run twice: nothing is duplicated.
  *
@@ -34,18 +34,18 @@ if ($realCharges > 0) {
 
 $now = date('Y-m-d H:i:s');
 
-// --- Instruments -----------------------------------------------------------
+// --- Equipment -----------------------------------------------------------
 // Tags follow the PRI Facilities form, P10 plus a letter and five digits.
-$instruments = [
+$equipment = [
     // tag, class, name, make, model, location, rate, unit, receiving CFOPA, contact
-    ['P10E35946', 'instrument', 'ICP-MS (Agilent 7900)',      'Agilent',   '7900',        'NRB 2054', 18.50, 'per sample', '1-303631-375002-375150-A51', 'Ruiz'],
-    ['P10E41102', 'instrument', 'GC-MS bench',                 'Thermo',    'ISQ 7000',    'NRB 2054', 42.00, 'per hour',   '1-303631-375002-375150-A52', 'Whitaker'],
+    ['P10E35946', 'equipment', 'ICP-MS (Agilent 7900)',      'Agilent',   '7900',        'NRB 2054', 18.50, 'per sample', '1-303631-375002-375150-A51', 'Ruiz'],
+    ['P10E41102', 'equipment', 'GC-MS bench',                 'Thermo',    'ISQ 7000',    'NRB 2054', 42.00, 'per hour',   '1-303631-375002-375150-A52', 'Whitaker'],
     ['P10H13027', 'shop',       'Freeze dryer',                'Labconco',  'FreeZone 6',  'NRB 1120', 75.00, 'per run',    '1-303631-375002-375150-A53', 'Okafor'],
-    ['P10R16770', 'instrument', 'Stable isotope analyser',     'Elementar', 'visION',      'NRB 2061', 26.75, 'per sample', '1-303631-375002-375150-A54', 'Ruiz'],
+    ['P10R16770', 'equipment', 'Stable isotope analyser',     'Elementar', 'visION',      'NRB 2061', 26.75, 'per sample', '1-303631-375002-375150-A54', 'Ruiz'],
     ['P10E22418', 'field',      'Water quality sonde',         'YSI',       'EXO2',        'Field',     9.00, 'per hour',   '1-303631-375002-375150-A55', 'Beaumont'],
 ];
 
-foreach ($instruments as [$tag, $class, $name, $make, $model, $loc, $rate, $unit, $recv, $who]) {
+foreach ($equipment as [$tag, $class, $name, $make, $model, $loc, $rate, $unit, $recv, $who]) {
     if (db_one('SELECT 1 FROM equipment WHERE property_tag = ?', [$tag])) { continue; }
     db_run(
         'INSERT INTO equipment (property_tag, equip_class, name, manufacturer, model, location, rate,
@@ -53,7 +53,7 @@ foreach ($instruments as [$tag, $class, $name, $make, $model, $loc, $rate, $unit
          VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?)',
         [$tag, $class, $name, $make, $model, $loc, $rate, $unit, date('Y-01-01'), $recv, $who, $now]
     );
-    note('instrument: ' . $name);
+    note('equipment: ' . $name);
 }
 
 // --- Grants ----------------------------------------------------------------
@@ -150,12 +150,12 @@ if ($equip && $chargeable && (int) db_value('SELECT COUNT(*) FROM usage_records'
     $victim = db_one('SELECT usage_id FROM usage_records ORDER BY usage_id LIMIT 1');
     if ($victim) {
         db_run('UPDATE usage_records SET voided = 1, void_reason = ? WHERE usage_id = ?',
-            ['Demo data: instrument fault, samples rerun.', $victim['usage_id']]);
+            ['Demo data: equipment fault, samples rerun.', $victim['usage_id']]);
         note('one record voided, to show the audit trail');
     }
 }
 
-// --- Bookings --------------------------------------------------------------
+// --- Reservations --------------------------------------------------------------
 if ($equip && (int) db_value('SELECT COUNT(*) FROM reservations') === 0) {
     $sunday = week_start(date('Y-m-d'));
     $plan = [
@@ -184,43 +184,43 @@ if ($equip && (int) db_value('SELECT COUNT(*) FROM reservations') === 0) {
         );
         $made++;
     }
-    note($made . ' bookings on this week\'s calendar');
+    note($made . ' reservations on this week\'s calendar');
 }
 
 // --- Report ----------------------------------------------------------------
 $summary = [
-    'instruments' => (int) db_value('SELECT COUNT(*) FROM equipment'),
+    'equipment' => (int) db_value('SELECT COUNT(*) FROM equipment'),
     'grants'      => (int) db_value('SELECT COUNT(*) FROM grants'),
     'charges'     => (int) db_value('SELECT COUNT(*) FROM usage_records'),
     'value'       => (float) db_value('SELECT COALESCE(SUM(total_charge),0) FROM usage_records WHERE voided = 0'),
-    'bookings'    => (int) db_value('SELECT COUNT(*) FROM reservations'),
+    'reservations'    => (int) db_value('SELECT COUNT(*) FROM reservations'),
 ];
 
 if ($cli) {
     foreach ($log as $line) { echo '  ', $line, PHP_EOL; }
-    printf("\n%d instruments, %d grants, %d charges worth %s, %d bookings.\n",
-        $summary['instruments'], $summary['grants'], $summary['charges'],
-        money($summary['value']), $summary['bookings']);
+    printf("\n%d equipment, %d grants, %d charges worth %s, %d reservations.\n",
+        $summary['equipment'], $summary['grants'], $summary['charges'],
+        money($summary['value']), $summary['reservations']);
     exit;
 }
 
-page_header('Demo data', ['nav' => 'home', 'mainClass' => 'page narrow']);
+page_header('Demo Data', ['nav' => 'home', 'mainClass' => 'page narrow']);
 ?>
-<h1>Demo data</h1>
+<h1>Demo Data</h1>
 <?php if ($log): ?>
   <div class="flash flash-success">Added:</div>
   <ul>
     <?php foreach ($log as $line): ?><li><?= h($line) ?></li><?php endforeach; ?>
   </ul>
 <?php else: ?>
-  <div class="flash flash-notice">Nothing to add — the database already has this data.</div>
+  <div class="flash flash-notice">Nothing to add: the database already has this data.</div>
 <?php endif; ?>
 
 <div class="card">
-  <p>The database now holds <strong><?= $summary['instruments'] ?></strong> instruments,
+  <p>The database now holds <strong><?= $summary['equipment'] ?></strong> equipment,
   <strong><?= $summary['grants'] ?></strong> grants,
   <strong><?= $summary['charges'] ?></strong> charges worth <strong><?= h(money($summary['value'])) ?></strong>,
-  and <strong><?= $summary['bookings'] ?></strong> bookings.</p>
+  and <strong><?= $summary['reservations'] ?></strong> reservations.</p>
   <div class="button-row">
     <a class="button" href="home.php">Go to the home screen</a>
     <a class="button button-secondary" href="report.php">See the billing report</a>

@@ -53,20 +53,20 @@ foreach ($tree as $path) {
 admin_header('studio', 'Studio');
 ?>
 <h1>Studio</h1>
-<p class="lede">The application's own source, editable here. Every save is parsed
-before it is written, the previous copy is kept, and the change is logged.</p>
+<p class="lede">The application's own source, editable here, which the
+<a href="settings.php">Interface Text</a> screen cannot do: that one writes text
+and this one writes code. The grant is separate for the same reason. Every save is
+parsed before it is written, the previous copy is kept, and the change is logged.</p>
 
 <?php if ($note !== ''): ?>
   <div class="flash flash-<?= h($kind) ?>"><?= h($note) ?></div>
 <?php endif; ?>
 
-<div class="card card-tight" style="background:#FFF8E1;border-color:#E6CF8B">
-  <p style="margin:.4rem .6rem">
-    <strong>This writes code that the next request runs.</strong>
-    A file that will not parse is refused rather than saved, but a file that parses
-    can still be wrong. Change one thing, reload the application in another tab, and
-    use <em>Restore</em> if it is worse than it was.
-  </p>
+<div class="flash flash-notice">
+  <strong>This writes code that the next request runs.</strong>
+  A file that will not parse is refused rather than saved, but a file that parses
+  can still be wrong. Change one thing, reload the application in another tab, and
+  use <em>Restore</em> if it is worse than it was.
 </div>
 
 <div class="studio">
@@ -75,7 +75,7 @@ before it is written, the previous copy is kept, and the change is logged.</p>
       <p class="studio-dir"><?= h($dir) ?></p>
       <ul class="studio-files">
         <?php foreach ($files as $path): ?>
-          <li<?= $path === $rel ? ' class="on"' : '' ?>>
+          <li<?= $path === $rel ? ' class="is-current"' : '' ?>>
             <a href="?file=<?= urlencode($path) ?>"><?= h(basename($path)) ?></a>
           </li>
         <?php endforeach; ?>
@@ -87,7 +87,7 @@ before it is written, the previous copy is kept, and the change is logged.</p>
     <?php if ($full === null): ?>
       <div class="card"><p class="empty">Choose a file on the left.</p></div>
     <?php else: ?>
-      <form method="post" class="card card-tight">
+      <form method="post" class="card form">
         <?= csrf_field() ?>
         <input type="hidden" name="action" value="save">
         <input type="hidden" name="file" value="<?= h($rel) ?>">
@@ -98,27 +98,27 @@ before it is written, the previous copy is kept, and the change is logged.</p>
         </div>
         <textarea name="code" class="studio-code" spellcheck="false" wrap="off"><?= h($code) ?></textarea>
         <div class="form-actions">
-          <button type="submit" class="button">Save this file</button>
-          <a class="button button-secondary" href="?file=<?= urlencode($rel) ?>">Reload, discarding changes</a>
+          <a class="link-quiet" href="?file=<?= urlencode($rel) ?>">Reload, discarding changes</a>
+          <button type="submit" class="button">Save This File</button>
         </div>
       </form>
 
-      <?php accordion_open('studio-backups', 'Previous copies of this file',
+      <?php accordion_open('studio-backups', 'Previous Copies of This File',
                            ['meta' => count($backups) . ' kept']); ?>
         <?php if (!$backups): ?>
           <p class="empty">None yet. One is kept every time you save.</p>
         <?php else: ?>
+          <div class="table-wrap">
           <table class="data">
             <thead><tr><th>Kept</th><th class="num">Size</th><th></th></tr></thead>
             <tbody>
             <?php foreach ($backups as $b): ?>
               <tr>
-                <td class="nowrap"><?= h(substr($b['when'], 0, 4) . '-' . substr($b['when'], 4, 2)
-                    . '-' . substr($b['when'], 6, 2) . ' ' . substr($b['when'], 9, 2)
-                    . ':' . substr($b['when'], 11, 2)) ?></td>
+                <td class="nowrap"><?= h(pretty_datetime(studio_backup_time($b['when']))) ?></td>
                 <td class="num"><?= number_format($b['size']) ?></td>
                 <td class="nowrap">
-                  <form method="post" onsubmit="return confirm('Put this copy back? The current file is kept first.');">
+                  <form method="post" data-confirm="Put this copy back? The current file is kept first."
+                        data-confirm-ok="Restore">
                     <?= csrf_field() ?>
                     <input type="hidden" name="action" value="restore">
                     <input type="hidden" name="file" value="<?= h($rel) ?>">
@@ -130,15 +130,17 @@ before it is written, the previous copy is kept, and the change is logged.</p>
             <?php endforeach; ?>
             </tbody>
           </table>
+          </div>
         <?php endif; ?>
       <?php accordion_close(); ?>
     <?php endif; ?>
 
-    <?php accordion_open('studio-history', 'What has been changed here',
+    <?php accordion_open('studio-history', 'What Has Been Changed Here',
                          ['meta' => count($history) . ' most recent']); ?>
       <?php if (!$history): ?>
         <p class="empty">Nothing has been saved from this screen yet.</p>
       <?php else: ?>
+        <div class="table-wrap">
         <table class="data">
           <thead><tr><th>When</th><th>Who</th><th>What</th><th>File</th><th></th></tr></thead>
           <tbody>
@@ -153,6 +155,7 @@ before it is written, the previous copy is kept, and the change is logged.</p>
           <?php endforeach; ?>
           </tbody>
         </table>
+        </div>
       <?php endif; ?>
     <?php accordion_close(); ?>
   </div>

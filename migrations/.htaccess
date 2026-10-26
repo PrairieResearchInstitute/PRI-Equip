@@ -1,0 +1,8 @@
+# The numbered SQL migrations (tools/migrate.php, install.php on PostgreSQL)
+# are read from disk by PHP; the web has no reason to reach them.
+Require all denied
+
+<IfModule !mod_authz_core.c>
+  Order allow,deny
+  Deny from all
+</IfModule>

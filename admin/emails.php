@@ -61,18 +61,18 @@ $counts = [
 function purpose_label(string $purpose): string
 {
     $map = [
-        'equipment_retired' => 'Instrument retired',
-        'equipment_down'    => 'Instrument out of service',
+        'equipment_retired' => 'Equipment retired',
+        'equipment_down'    => 'Equipment out of service',
     ];
     return $map[$purpose] ?? ucfirst(str_replace('_', ' ', $purpose));
 }
 
-admin_header('emails', 'Message log');
+admin_header('emails', 'Message Log');
 ?>
-<h1>Message log</h1>
+<h1>Message Log</h1>
 <p class="lede">Every message this application has composed, with the words it used.
 Messages are handed to Outlook rather than sent, so the log records that one was
-written and whether the mail client was opened with it — never that it was sent.</p>
+written and whether the mail client was opened with it, never that it was sent.</p>
 
 <?php if ($reopen): ?>
   <div class="card notify-card" data-mailto="<?= h($reopen['href']) ?>"
@@ -108,7 +108,7 @@ written and whether the mail client was opened with it — never that it was sen
   </div>
 </div>
 
-<?php accordion_open('emails-filter', 'Narrow the list', ['open' => $filterPurpose !== '' || $filterEquip > 0]); ?>
+<?php accordion_open('emails-filter', 'Narrow the List', ['open' => $filterPurpose !== '' || $filterEquip > 0]); ?>
   <form method="get" class="report-filters">
     <div class="field">
       <label for="purpose">Kind of message</label>
@@ -122,7 +122,7 @@ written and whether the mail client was opened with it — never that it was sen
       </select>
     </div>
     <div class="field">
-      <label for="equipment_id">Instrument</label>
+      <label for="equipment_id">Equipment</label>
       <select id="equipment_id" name="equipment_id">
         <option value="">All</option>
         <?php foreach ($equipment as $item): ?>
@@ -132,7 +132,7 @@ written and whether the mail client was opened with it — never that it was sen
         <?php endforeach; ?>
       </select>
     </div>
-    <button type="submit" class="button">Filter</button>
+    <button type="submit" class="button button-small">Filter</button>
   </form>
 <?php accordion_close(); ?>
 
@@ -153,11 +153,11 @@ written and whether the mail client was opened with it — never that it was sen
               : ($message['status'] === 'composed' ? 'notice' : ''),
   ]); ?>
     <dl class="email-head">
-      <div><dt>To</dt><dd><?= $message['to_address'] ? h($message['to_address']) : '<span class="muted">nobody — no address was set</span>' ?></dd></div>
+      <div><dt>To</dt><dd><?= $message['to_address'] ? h($message['to_address']) : '<span class="muted">nobody, no address was set</span>' ?></dd></div>
       <?php if ($message['cc_address']): ?>
         <div><dt>Copy to</dt><dd><?= h($message['cc_address']) ?></dd></div>
       <?php endif; ?>
-      <div><dt>About</dt><dd><?= h(purpose_label($message['purpose'])) ?><?= $message['equipment_name'] ? ' — ' . h($message['equipment_name']) : '' ?></dd></div>
+      <div><dt>About</dt><dd><?= h(purpose_label($message['purpose'])) ?><?= $message['equipment_name'] ? ' · ' . h($message['equipment_name']) : '' ?></dd></div>
       <div><dt>Written by</dt><dd><?= h($message['created_by'] ?: 'unknown') ?>, <?= h(pretty_datetime($message['created_at'])) ?></dd></div>
       <div><dt>Status</dt><dd>
         <?= h(email_status_label($message['status'])) ?>
@@ -172,7 +172,7 @@ written and whether the mail client was opened with it — never that it was sen
         <a class="button button-secondary button-small" href="?open=<?= (int) $message['email_id'] ?>">Open in the mail client</a>
       <?php endif; ?>
       <?php if ($message['equipment_id']): ?>
-        <a class="button button-secondary button-small" href="equipment.php?edit=<?= (int) $message['equipment_id'] ?>">The instrument</a>
+        <a class="button button-secondary button-small" href="equipment.php?edit=<?= (int) $message['equipment_id'] ?>">The equipment</a>
       <?php endif; ?>
     </div>
   <?php accordion_close(); ?>

@@ -32,8 +32,8 @@ check(
     PHP_VERSION . ($phpOk
         ? ($phpTested
             ? ' (8.0 or later required)'
-            : ' — runs, but the application is tested on 8.3 and later. Worth upgrading.')
-        : ' — this application requires PHP 8.0 or later')
+            : ': runs, but the application is tested on 8.3 and later. Worth upgrading.')
+        : ': this application requires PHP 8.0 or later')
 );
 
 // --- PDO and the SQLite driver --------------------------------------------
@@ -70,7 +70,14 @@ check(
 );
 
 // --- The data directory ----------------------------------------------------
+// The data folder config.local.json names (includes/local-config.php, the
+// same loader db.php uses), else data/ beside this file. Copied to a server on
+// its own, without includes/, this page tests data/ as before.
 $dataDir = __DIR__ . DIRECTORY_SEPARATOR . 'data';
+if (is_readable(__DIR__ . '/includes/local-config.php')) {
+    require_once __DIR__ . '/includes/local-config.php';
+    $dataDir = lab_data_dir();
+}
 $madeDir = false;
 
 if (!is_dir($dataDir)) {
@@ -108,11 +115,11 @@ if (is_dir($dataDir)) {
         $probe = $dataDir . DIRECTORY_SEPARATOR . 'capability-probe.sqlite';
         @unlink($probe);
         try {
-            $pdo = new PDO('sqlite:' . $probe, null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
-            $pdo->exec('CREATE TABLE probe (id INTEGER PRIMARY KEY, note TEXT)');
-            $stmt = $pdo->prepare('INSERT INTO probe (note) VALUES (?)');
+            $pdo = new PDO('sqlite:' . $probe, null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]); // db-calls: allow standalone capability probe on its own scratch file; it must not depend on db.php
+            $pdo->exec('CREATE TABLE probe (id INTEGER PRIMARY KEY, note TEXT)'); // db-calls: allow standalone capability probe on its own scratch file; it must not depend on db.php
+            $stmt = $pdo->prepare('INSERT INTO probe (note) VALUES (?)'); // db-calls: allow standalone capability probe on its own scratch file; it must not depend on db.php
             $stmt->execute(['round trip']);
-            $back = $pdo->query('SELECT note FROM probe')->fetchColumn();
+            $back = $pdo->query('SELECT note FROM probe')->fetchColumn(); // db-calls: allow standalone capability probe on its own scratch file; it must not depend on db.php
 
             // Every handle has to go before the file can be deleted. Windows
             // keeps the file locked while a statement still references the
@@ -263,6 +270,8 @@ function e(string $s): string
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Server capability check</title>
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="assets/favicon.ico" sizes="any">
 <!-- Styles are inline here, and only here, because this page ships on its own
      before the rest of the application (including assets/style.css) exists. -->
 <style>
@@ -292,8 +301,8 @@ function e(string $s): string
 </head>
 <body>
 <main>
-  <h1>Server capability check</h1>
-  <p class="sub">Shared Laboratory Equipment System &middot; run this before installing anything else.</p>
+  <h1>Server Capability Check</h1>
+  <p class="sub">PRI Shared Equipment &middot; run this before installing anything else.</p>
 
 <?php if ($failures === 0 && $warnings === 0): ?>
   <div class="verdict pass">

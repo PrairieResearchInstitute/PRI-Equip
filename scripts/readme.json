@@ -1,0 +1,26 @@
+{
+  "title": "PaCELab Equip: Shared Laboratory Equipment System",
+  "summary": "A PHP and SQLite web application that records equipment use in a shared laboratory, charges each use to a grant account, prevents scheduling conflicts, and produces the monthly charge report for the business office.",
+  "version": "1.0.0",
+  "requirements": [
+    "Windows 10 or 11 for the drive copy; the bundled PHP in tools\\php runs it, so nothing else is installed",
+    "On a campus server: PHP 8.0 or later with pdo_sqlite (or pdo_pgsql for PostgreSQL) and a folder the web server can write to"
+  ],
+  "install": [
+    "Plug in the drive and open the application folder under apps\\pacelab-equip.",
+    "Double-click SETUP.bat. It creates config.local.json, points the data folder at ..\\..\\data\\pacelab-equip\\data, then runs SETUP ON THIS PC.bat, which adds the logon and Desktop shortcuts for this folder and starts the server.",
+    "Open http://localhost:8147/ in a browser."
+  ],
+  "run": [
+    "Double-click the Shared Lab Equipment shortcut on the Desktop (no window) or START HERE.bat. Either starts the server when it is down and opens the browser.",
+    "STOP SERVER.bat stops this application's server and nothing else. RUN TESTS.bat runs the regression suite against a scratch database."
+  ],
+  "settings": [
+    { "key": "dataFolder", "meaning": "The folder holding lab.sqlite, the installer lock and the logs, relative to the application folder: ..\\..\\data\\pacelab-equip\\data on the drive. Empty means data\\ inside the application folder." },
+    { "key": "backupFolder", "meaning": "Where the daily backups go, relative to the application folder: ..\\..\\data\\pacelab-equip\\backups on the drive." },
+    { "key": "PACELAB_DRIVER and PG*", "meaning": "On a server only, in the environment (env.template.txt lists them): pgsql and the PostgreSQL connection. Unset means SQLite." }
+  ],
+  "data": "The database lives outside the application folder, in data\\pacelab-equip\\data on the drive, named by config.local.json. It is never stored in git. Without config.local.json the application uses data\\ in its own folder, as it always did.",
+  "backups": "While the server runs, the supervisor takes one backup a day with SQLite's VACUUM INTO, reads it back and counts its rows, and keeps 60 days in data\\pacelab-equip\\backups. BACK UP NOW.bat takes one on demand and proves it restores.",
+  "support": "M. J. Dreslik"
+}

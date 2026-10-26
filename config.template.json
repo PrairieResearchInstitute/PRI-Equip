@@ -1,0 +1,9 @@
+{
+    "tier": "local",
+    "dataFolder": "",
+    "backupFolder": "",
+    "databaseDriver": "",
+    "databaseUrl": "",
+    "apiBaseUrl": "",
+    "secrets": {}
+}

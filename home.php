@@ -30,21 +30,22 @@ $others = array_values(array_filter(labs(), function ($lab) use ($mineIds) {
     return !in_array((int) $lab['lab_id'], $mineIds, true);
 }));
 
-/** Instruments and people, for the card. */
+/** Equipment and people, for the card. */
 function lab_counts(int $labId): string
 {
-    $instruments = (int) db_value('SELECT COUNT(*) FROM equipment WHERE lab_id = ? AND active = 1', [$labId]);
+    $equipment = (int) db_value('SELECT COUNT(*) FROM equipment WHERE lab_id = ? AND active = 1', [$labId]);
     $people      = (int) db_value('SELECT COUNT(*) FROM lab_members WHERE lab_id = ?', [$labId]);
-    return $instruments . ' instrument' . ($instruments === 1 ? '' : 's')
+    // Equipment is a mass noun: one piece, two pieces, never "equipments".
+    return $equipment . ($equipment === 1 ? ' piece' : ' pieces') . ' of equipment'
          . ' · ' . $people . ' ' . ($people === 1 ? 'person' : 'people');
 }
 
-page_header('Choose a laboratory', ['nav' => 'home']);
+page_header('Your Laboratories', ['nav' => 'home']);
 ?>
-<h1>Choose a laboratory</h1>
+<h1>Your Laboratories</h1>
 
 <?php if ($mine): ?>
-  <p class="lede">Each laboratory keeps its own instruments, grants, bookings and charges.
+  <p class="lede">Choose the one to work in. Each laboratory keeps its own equipment, grants, reservations and charges.
   <?= count($mine) === 1 ? 'You are in one of them.' : 'You are in ' . count($mine) . ' of them.' ?></p>
 
   <div class="grid-cards lab-cards">
@@ -59,38 +60,40 @@ page_header('Choose a laboratory', ['nav' => 'home']);
       <?php if ($lab['description']): ?><p class="hint"><?= h($lab['description']) ?></p><?php endif; ?>
       <p class="lab-card-counts"><?= h(lab_counts((int) $lab['lab_id'])) ?></p>
 
-      <button type="submit" class="button">Enter this laboratory</button>
+      <button type="submit" class="button">Enter This Laboratory</button>
     </form>
   <?php endforeach; ?>
 
   <?php if (is_admin()): ?>
     <a class="lab-card lab-card-new" href="admin/labs.php">
-      <h3>Add a laboratory</h3>
-      <p class="hint">Set up another group with its own instruments, grants and people.</p>
-      <span class="button button-secondary button-small">Set one up</span>
+      <h3>Add a Laboratory</h3>
+      <p class="hint">Set up another group with its own equipment, grants and people.</p>
+      <span class="button button-secondary button-small">Set One Up</span>
     </a>
   <?php endif; ?>
   </div>
 
 <?php else: ?>
   <div class="card notify-card">
-    <h2 class="card-heading">You are not in a laboratory yet</h2>
+    <h2 class="card-heading">No Laboratory Assigned</h2>
     <p><strong><?= h(current_user_name() ?: 'You') ?></strong> has not been added to any laboratory,
-    so there is nothing to show: no instruments, no bookings, and nothing to charge.</p>
+    so there is nothing to show: no equipment, no reservations, and nothing to charge.</p>
     <p>An administrator adds people to a laboratory. Ask whoever looks after yours, and tell them
-    the name you type when you open this application — <code><?= h(person_key(current_user_name())) ?></code>.</p>
+    <?= identity_is_self_declared() ? 'the name you type when you open this application' : 'your NetID' ?>: <code><?= h(person_key(current_user_name())) ?></code>.</p>
+    <?php if (identity_is_self_declared()): ?>
     <div class="button-row">
       <a class="button button-secondary" href="index.php?switch_user=1">Use a different name</a>
     </div>
+    <?php endif; ?>
   </div>
 <?php endif; ?>
 
 <?php if ($others): ?>
-  <?php accordion_open('home-other-labs', 'Other laboratories', [
+  <?php accordion_open('home-other-labs', 'Other Laboratories', [
       'meta' => count($others) . ' you are not in',
   ]); ?>
-    <p class="hint">These exist in this installation but are not open to you. Everything inside them —
-    instruments, bookings, charges — stays theirs.</p>
+    <p class="hint">These exist in this installation but are not open to you. Everything inside them (equipment,
+    reservations and charges) stays theirs.</p>
     <div class="grid-cards lab-cards">
     <?php foreach ($others as $lab): ?>
       <div class="lab-card lab-card-shut">
