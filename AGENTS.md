@@ -18,7 +18,7 @@ reason the stack is not the one in `pri-ai-project-template` — do not "improve
 it into Docker and FastAPI. Container files for the hosted test server are
 a separate matter, covered in the decisions table below.
 
-The ship list in `tools/build-release.ps1` names 44 files, about 492 KB.
+The ship list in `tools/build-release.ps1` names 53 files.
 `BUILD FOR SERVER.bat` makes the deployable zip.
 
 The application lives and is developed in `App_to_Migrate\apps\pacelab-equip`.
@@ -34,13 +34,13 @@ node tools/check.js      the gate: the suite, the data folder, the live database
 RUN TESTS.bat            the suite on its own
 ```
 
-271 checks on SQLite. They build a throwaway database from `includes/schema.php`, the
+276 checks on SQLite. They build a throwaway database from `includes/schema.php`, the
 same source `install.php` uses, so a test can never drift from production the
 way a hand-written `CREATE TABLE` would. They never open the live database.
 One of them proves `schema.php` and the numbered migrations build the same
 tables, columns and indexes.
 
-On PostgreSQL (`PACELAB_TEST_DRIVER=pgsql`, 274 checks) the harness refuses a
+On PostgreSQL (`PACELAB_TEST_DRIVER=pgsql`, 279 checks) the harness refuses a
 database whose name does not end in `_test`, asks the server which database it
 reached, drops every table and rebuilds the test database from
 `migrations/*.pgsql.sql` (D-011). Credentials come from the PG* names in

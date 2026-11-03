@@ -39,7 +39,7 @@ jobs:
           set -e
           find . -name "*.php" -not -path "./tools/*" -print0 | xargs -0 -n1 php -l
 
-      # 111 checks, no dependencies, exits non-zero on failure.
+      # No dependencies; exits non-zero on failure.
       - name: Run the test suite
         run: php tests/run-tests.php
 
