@@ -3,9 +3,10 @@
 #     powershell -NoProfile -ExecutionPolicy Bypass -File tests\drive-invariance.ps1
 #
 # tests\run-tests.php covers the PHP loader; this file covers its PowerShell
-# twin in tools\paths.ps1 and the two launcher rules: a launcher opens only a
-# server that serves this very folder (R6), and a shortcut never names the
-# drive (R5). Everything happens in a scratch folder of its own, removed at
+# twin in tools\paths.ps1 and the launcher rules: a launcher opens only a
+# server that serves this very folder, judged by folder identity and never by
+# spelling (R6), a shortcut never names the drive (R5), and the folder holds
+# no launcher script but SETUP.bat. Everything happens in a scratch folder of its own, removed at
 # the end. tools\check.js runs it on Windows. Healthy output ends with
 # "All N drive-invariance checks passed."
 
@@ -23,9 +24,10 @@ function Check([string]$what, [bool]$cond, [string]$detail = '') {
 }
 
 # The scratch folder goes beside the data folder when one is configured
-# (owner standard B), otherwise in the system temp folder.
+# (owner standard B), otherwise in data\tmp in this folder; never the
+# computer's temp folder.
 $base = Get-LabTempDir
-if (-not $base -or -not (Test-Path -LiteralPath (Split-Path -Parent $base))) { $base = [IO.Path]::GetTempPath() }
+if (-not $base -or -not (Test-Path -LiteralPath (Split-Path -Parent $base))) { $base = Join-Path $realApp 'data\tmp' }
 if (-not (Test-Path -LiteralPath $base)) { New-Item -ItemType Directory -Path $base | Out-Null }
 $scratch = Join-Path $base ('drive-inv-ps-' + $PID)
 
@@ -70,24 +72,43 @@ try {
     $n = Compare-LabServerRoot '<html>It works</html>' $fakeApp
     Check 'an answer with no root is never taken for this copy' (($n.state -eq 'other') -and ($n.root -eq ''))
 
-    # R5: a shortcut runs the estate launcher and names no drive.
+    # R6 by identity, not spelling: the same folder reached through another
+    # path (a junction here; the estate's fixed folder on a real computer) is
+    # this copy, and a look-alike folder with the same name is not (incident
+    # 2026-11-03: a text comparison called one folder two copies).
+    $alias = Join-Path $scratch 'alias'
+    New-Item -ItemType Junction -Path $alias -Target $fakeApp | Out-Null
+    Check 'a server reporting this folder through another path is this copy' `
+        ((Compare-LabServerRoot (@{ root = $alias } | ConvertTo-Json) $fakeApp).state -eq 'mine')
+    $twin = Join-Path $scratch 'twin\App_to_Migrate\apps\pacelab-equip'
+    New-Item -ItemType Directory -Force -Path $twin | Out-Null
+    Check 'a different folder with the same name is another copy' `
+        ((Compare-LabServerRoot (@{ root = $twin } | ConvertTo-Json) $fakeApp).state -eq 'other')
+    Check 'this application folder and its fixed-folder spelling, where it exists, are one folder' `
+        ((-not (Test-Path -LiteralPath (Join-Path $env:SystemDrive 'Estate\App_to_Migrate\apps\pacelab-equip'))) -or
+         (Test-LabSameFolder (Join-Path $env:SystemDrive 'Estate\App_to_Migrate\apps\pacelab-equip') $realApp) -or
+         (-not (Test-Path -LiteralPath (Join-Path $realApp '..\..\.estate-live'))))
+
+    # R5: a shortcut reaches the app through %SystemDrive%\Estate and names no drive.
     $sysDrive = Join-Path $scratch 'sysdrive'
-    New-Item -ItemType Directory -Force -Path $sysDrive | Out-Null
-    Check 'no shortcut without the estate launcher' ($null -eq (Get-LabShortcutArgs 'tools\ensure-running.ps1' $sysDrive))
-    $openApp = Join-Path $sysDrive 'Estate\App_to_Migrate\harness\tools'
-    New-Item -ItemType Directory -Force -Path $openApp | Out-Null
-    Set-Content -LiteralPath (Join-Path $openApp 'open-app.vbs') -Value "' test" -Encoding ascii
-    $a = Get-LabShortcutArgs 'tools\ensure-running.ps1' $sysDrive
-    Check 'the shortcut arguments name the app folder and launcher, through %SystemDrive%' `
-        ($a -eq '"%SystemDrive%\Estate\App_to_Migrate\harness\tools\open-app.vbs" pacelab-equip "tools\ensure-running.ps1"') "$a"
-    Check 'the shortcut target and arguments hold no drive letter' `
-        (-not ($a -match '[A-Za-z]:\\') -and -not ($LabWscript -match '[A-Za-z]:\\')) "$LabWscript $a"
+    New-Item -ItemType Directory -Force -Path (Join-Path $sysDrive 'Estate\App_to_Migrate\apps') | Out-Null
+    Check 'no shortcut when the fixed folder does not lead to this folder' ($null -eq (Get-LabFixedPath 'tools\serve.ps1' $sysDrive))
+    New-Item -ItemType Junction -Path (Join-Path $sysDrive 'Estate\App_to_Migrate\apps\pacelab-equip') -Target $fakeApp | Out-Null
+    $a = Get-LabFixedPath 'tools\serve.ps1' $sysDrive
+    Check 'the shortcut path names the app folder through %SystemDrive%' `
+        ($a -eq '%SystemDrive%\Estate\App_to_Migrate\apps\pacelab-equip\tools\serve.ps1') "$a"
+    Check 'the shortcut path holds no drive letter' (-not ($a -match '[A-Za-z]:\\')) "$a"
     $setup = Get-Content -LiteralPath (Join-Path $realApp 'tools\setup-machine.ps1') -Raw
-    Check 'setup-machine writes no shortcut from the folder path' `
-        (-not ($setup -match '\.(TargetPath|WorkingDirectory|Arguments)\s*=.*\$root'))
-    foreach ($l in 'tools\ensure-running.ps1', 'START HERE.bat') {
+    Check 'setup-machine writes no shortcut from the folder path, and none through a .vbs' `
+        (-not ($setup -match '\.(TargetPath|WorkingDirectory|Arguments)\s*=.*\$root') -and -not ($setup -match '\.vbs|wscript\.exe'))
+
+    # One way to start (owner ruling 2026-11-03): SETUP.bat, the launchers and
+    # tools\serve.ps1; no other .bat, .cmd or .vbs at the application root.
+    foreach ($l in 'tools\serve.ps1', 'PaCELab Equip.exe', 'launcher\launcher.ini', 'launcher-stop\launcher.ini') {
         Check "the launcher $l exists in the application folder" (Test-Path -LiteralPath (Join-Path $realApp $l))
     }
+    $stray = @(Get-ChildItem -LiteralPath $realApp -File | Where-Object { $_.Extension -in '.bat', '.cmd', '.vbs' -and $_.Name -ne 'SETUP.bat' })
+    Check 'no .bat, .cmd or .vbs other than SETUP.bat at the application root' ($stray.Count -eq 0) (($stray | ForEach-Object Name) -join ', ')
 } finally {
     Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction SilentlyContinue
 }

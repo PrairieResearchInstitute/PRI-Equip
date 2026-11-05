@@ -1,8 +1,8 @@
 [
   {
-    "file": "FORGOT ADMIN PASSWORD.bat",
-    "match": "http://localhost:8080/admin/login.php",
-    "reason": "instruction text shown to the person after a password reset; names the local sign-in page"
+    "file": "tools/reset-admin-password.ps1",
+    "match": "http://127.0.0.1:8147/admin/login.php",
+    "reason": "instruction text shown to the person after a password reset; names the local sign-in page on the fixed port 8147"
   },
   {
     "file": "api.php",
@@ -60,24 +60,14 @@
     "reason": "test input: a hostile redirect target the suite proves is refused"
   },
   {
-    "file": "tools/start-server.ps1",
-    "match": "http://localhost:$",
-    "reason": "the local PHP server this script starts on this computer; the port is a variable"
-  },
-  {
-    "file": "tools/ensure-running.ps1",
-    "match": "http://localhost:$Port/",
-    "reason": "the local PHP server the supervisor runs on this computer; the port is a parameter"
-  },
-  {
     "file": "tools/setup-machine.ps1",
-    "match": "http://localhost:8147/",
-    "reason": "message naming the local address of the supervisor's fixed port 8147"
+    "match": "http://127.0.0.1:8147/",
+    "reason": "message naming the local address of the fixed port 8147 of tools/serve.ps1"
   },
   {
     "file": "scripts/readme.json",
-    "match": "http://localhost:8147/",
-    "reason": "README text naming the local address of the supervisor's fixed port 8147"
+    "match": "http://127.0.0.1:8147/",
+    "reason": "README text naming the local address of the fixed port 8147 of tools/serve.ps1"
   },
   {
     "file": "tools/check.js",
@@ -88,5 +78,10 @@
     "file": "compose.yaml",
     "match": "http://127.0.0.1:8080/health.php?db=1",
     "reason": "the container health check calls health.php inside its own container on the fixed internal port 8080"
+  },
+  {
+    "file": "tools/serve.ps1",
+    "match": "http://127.0.0.1:$Port/",
+    "reason": "the local PHP server this script runs on this computer, bound to loopback; the port is a parameter"
   }
 ]

@@ -28,7 +28,6 @@
  */
 
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
@@ -52,12 +51,13 @@ const CREDIT = 'Developed by M. J. Dreslik, with Claude Opus 5';
   else fail('NOTICE is missing or lacks "' + CREDIT + '"');
 }
 
+// The bundled PHP only on Windows: an application on the estate drive runs
+// nothing from the computer. A server (Linux) uses its own php on PATH.
 function findPhp() {
-  const dirs = [path.join(APP, 'tools', 'php'), process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'php83')].filter(Boolean);
-  for (const d of dirs) {
-    const exe = path.join(d, 'php.exe');
-    if (fs.existsSync(exe)) return { cmd: exe, pre: ['-c', path.join(d, 'php.ini'), '-d', 'extension_dir=' + path.join(d, 'ext')] };
-  }
+  const d = path.join(APP, 'tools', 'php');
+  const exe = path.join(d, 'php.exe');
+  if (fs.existsSync(exe)) return { cmd: exe, pre: ['-c', path.join(d, 'php.ini'), '-d', 'extension_dir=' + path.join(d, 'ext')] };
+  if (process.platform === 'win32') return null;
   const r = spawnSync('php', ['-v'], { encoding: 'utf8' });
   return r.status === 0 ? { cmd: 'php', pre: [] } : null;
 }
@@ -70,7 +70,7 @@ const lastLines = (s, n) => String(s).trim().split(/\r?\n/).slice(-n);
 
 const p = findPhp();
 if (!p) {
-  say('  FAIL no PHP: tools\\php\\php.exe, %LOCALAPPDATA%\\php83 and php on PATH are all missing');
+  say('  FAIL the bundled PHP tools\\php\\php.exe is missing: run SETUP.bat, or copy tools\\php into this folder from the drive');
   say('CHECK FAILED: 1');
   process.exit(1);
 }
@@ -132,8 +132,8 @@ if (info) {
   // ------------------------------------------------------------ 3. read only
   if (fs.existsSync(info.database)) {
     say('Live database (read through a copy)');
-    // The copy goes to the drive, not %TEMP% on C: (owner standard B, D-007).
-    const tmpBase = (info.tempDir || '').trim() || os.tmpdir();
+    // The copy goes to the drive, never the computer's temp folder (owner standard B, D-007).
+    const tmpBase = (info.tempDir || '').trim() || path.join(APP, 'data', 'tmp');
     fs.mkdirSync(tmpBase, { recursive: true });
     const tmp = fs.mkdtempSync(path.join(tmpBase, 'pacelab-gate-'));
     try {
@@ -175,7 +175,7 @@ if (probe.status === 3) {
   if (tp.status === 0 && tpPassed) ok('on PostgreSQL: ' + tpPassed[0]);
   else fail('tests/run-tests.php on PostgreSQL exited ' + tp.status + ': ' + lastLines(tp.out, 3).join(' | '));
   if (info && fs.existsSync(info.database)) {
-    const tmpBase = (info.tempDir || '').trim() || os.tmpdir();
+    const tmpBase = (info.tempDir || '').trim() || path.join(APP, 'data', 'tmp');
     fs.mkdirSync(tmpBase, { recursive: true });
     const tmp = fs.mkdtempSync(path.join(tmpBase, 'pacelab-gate-pg-'));
     try {

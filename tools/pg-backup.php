@@ -11,7 +11,7 @@
  *   --keep-days N     prune dumps older than N days (default 60, as tools/backup.ps1)
  *
  * tools/backup.ps1 calls this when the application runs on PostgreSQL, so the
- * supervisor's daily backup and BACK UP NOW.bat follow the driver. A backup is
+ * supervisor's daily backup (tools/serve.ps1) and tools/backup.ps1 -Now follow the driver. A backup is
  * kept only after it has been restored and counted; a dump nobody restored is
  * a guess (pri-radiant-migration, drez-verified-backups).
  *

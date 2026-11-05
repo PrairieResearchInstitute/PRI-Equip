@@ -11,7 +11,7 @@ A booking, use-recording and grant-billing system for instruments that more
 than one laboratory shares. Illinois Natural History Survey, Prairie Research
 Institute.
 
-PHP 8 and SQLite. **No Composer, no npm, no build step, no CDN for anything the
+PHP 8 with PostgreSQL or SQLite through PDO. **No Composer, no npm, no build step, no CDN for anything the
 application itself renders.** It is meant to be unzipped into a campus web
 directory and opened. That constraint came from the specification and is the
 reason the stack is not the one in `pri-ai-project-template` — do not "improve"
@@ -19,7 +19,7 @@ it into Docker and FastAPI. Container files for the hosted test server are
 a separate matter, covered in the decisions table below.
 
 The ship list in `tools/build-release.ps1` names 53 files.
-`BUILD FOR SERVER.bat` makes the deployable zip.
+`powershell -File tools\build-release.ps1` makes the deployable zip.
 
 The application lives and is developed in `App_to_Migrate\apps\pacelab-equip`.
 The OneDrive folder it came from is a frozen archive: do not edit, build or
@@ -30,17 +30,20 @@ commit there.
 ## Run the tests. They are not decoration.
 
 ```
-node tools/check.js      the gate: the suite, the data folder, the live database
-RUN TESTS.bat            the suite on its own
+node tools/check.js                         the gate: the suite, the data folder, the live database
+powershell -File tools\run-tests.ps1         the suite on its own
 ```
 
-276 checks on SQLite. They build a throwaway database from `includes/schema.php`, the
+Run the gate from the drive-letter spelling of the folder, not from the
+estate's fixed folder `%SystemDrive%\Estate\App_to_Migrate` (owner, 2026-11-03).
+
+283 checks on SQLite. They build a throwaway database from `includes/schema.php`, the
 same source `install.php` uses, so a test can never drift from production the
 way a hand-written `CREATE TABLE` would. They never open the live database.
 One of them proves `schema.php` and the numbered migrations build the same
 tables, columns and indexes.
 
-On PostgreSQL (`PACELAB_TEST_DRIVER=pgsql`, 279 checks) the harness refuses a
+On PostgreSQL (`PACELAB_TEST_DRIVER=pgsql`, 286 checks) the harness refuses a
 database whose name does not end in `_test`, asks the server which database it
 reached, drops every table and rebuilds the test database from
 `migrations/*.pgsql.sql` (D-011). Credentials come from the PG* names in
@@ -105,19 +108,67 @@ every path handed to `Start-Process`.
 by a guessed line count. Let the renderer lay text out — one text frame with
 real paragraph spacing, not a box per item.
 
-**`cmd /c "RESET ..."` runs the Windows `reset` command**, not your file. The
-launcher is `FORGOT ADMIN PASSWORD.bat` for that reason. `START HERE.bat` has
-the same hazard and works only because it is double-clicked.
+**`cmd /c "RESET ..."` runs the Windows `reset` command**, not your file, and
+`cmd /c` on a name holding a space misparses it (`START HERE.bat` once ran as
+the built-in `start`). The application has no such helper any more: every
+action is a `tools\*.ps1` command run with `powershell -File`.
+
+**A folder is one folder however it is spelled.** The estate's fixed folder
+`%SystemDrive%\Estate\App_to_Migrate` and the drive-letter path reach the same files.
+Comparing the two spellings as text made the old launcher refuse to start
+("held by the copy in" the other spelling of this very folder, 2026-11-03).
+Compare folders with `Test-LabSameFolder` in `tools/paths.ps1` (file IDs),
+never with `-eq`, `-like` or a string comparison.
 
 ---
 
 ## How it runs locally
 
-`tools/supervisor.ps1` owns the server: it starts PHP on **port 8147**,
-restarts it if it stops, and takes the daily backup. A Startup shortcut runs it
-at logon. `SETUP.bat` installs that on a new machine and writes
-`config.local.json` first. The app folder travels with the drive, the logon
-shortcut does not.
+Owner ruling 2026-11-03: one way in. `SETUP.bat` is the only `.bat`;
+`PaCELab Equip.exe` starts the application and opens it; `Stop PaCELab
+Equip.exe` stops it; `tools/serve.ps1 start|stop|status` is the one owner of the
+server and both launchers only call it. They are built from `launcher\` and
+`launcher-stop\` with `node <estate>\Skills\drez-containerize\scripts\make-launcher.js
+<this folder>`; edit `launcher.ini`, never the `.exe`.
+
+`tools/serve.ps1` starts a hidden supervisor (one only, a named mutex) that
+runs PHP bound to `127.0.0.1` on **port 8147** (never `localhost`, which is
+`::1` first), restarts it if it stops, takes the daily backup and logs to
+`server.log` in the data folder. It decides whether the server on the port is
+this folder's by asking `health.php` for its `root` and comparing folder
+identity, and stops only processes whose command line names this folder.
+On PostgreSQL it starts and stops the estate's cluster through
+`tools/estate-pg.ps1`, and it refuses an administrator window with a plain
+message, because PostgreSQL will not run in one.
+
+**Everything runs from the drive, nothing from the computer** (owner,
+2026-10-20 and 2026-11-03). The only PHP is the bundled `tools\php`; without
+it every script stops and says to run `SETUP.bat`. Scratch, sessions and logs
+go beside the data folder on the drive (`data\tmp` in this folder when no data
+folder is configured), never the computer's temp folder. No script reads
+APPDATA, LOCALAPPDATA or the Startup folder; the suite fails if one does.
+
+**Start at logon** is the owner's step, because the shortcut lives in the
+computer's profile. Once per computer, in PowerShell (it replaces any older
+`Shared Lab Equipment.lnk`, such as the one that ran the retired `open-app.vbs`):
+
+```
+$s = New-Object -ComObject WScript.Shell; $l = $s.CreateShortcut((Join-Path ([Environment]::GetFolderPath('Startup')) 'Shared Lab Equipment.lnk')); $l.TargetPath = "$env:SystemDrive\Estate\App_to_Migrate\apps\pacelab-equip\PaCELab Equip.exe"; $l.WorkingDirectory = "$env:SystemDrive\Estate\App_to_Migrate\apps\pacelab-equip"; $l.Arguments = ''; $l.Save()
+```
+
+The target goes through the estate's fixed folder, so it follows the drive
+under any letter.
+
+| Action | Command (`powershell -NoProfile -ExecutionPolicy Bypass -File ...`) |
+|---|---|
+| start and open | `PaCELab Equip.exe`, or `tools\serve.ps1 start -Open` (`-Console` runs it in the window) |
+| stop | `Stop PaCELab Equip.exe`, or `tools\serve.ps1 stop` |
+| status | `tools\serve.ps1 status` |
+| tests | `tools\run-tests.ps1` |
+| backup now, with the restore drill | `tools\backup.ps1 -Now` |
+| build the release zip | `tools\build-release.ps1 -Open` |
+| administrator locked out | `tools\reset-admin-password.ps1` (in a normal PowerShell window; it asks questions) |
+| check this copy and start it (run by `SETUP.bat`) | `tools\setup-machine.ps1` |
 
 PHP's built-in server reads neither `.htaccess` nor `web.config` and, left to
 itself, hands out any file in the folder, `/.env` included (checked on a
@@ -186,9 +237,9 @@ every night while saving nothing current.
 
 | Decision | Why |
 |---|---|
-| SQLite for now, **Postgres before production hosting** | Agreed with the project owner. Testing continues on SQLite; a virtual test server and the Postgres move come before real billing data. Everything goes through PDO, so keep it that way and do not write SQLite-specific SQL. |
-| Postgres port on branch `port/postgres` (platform D-027) | The code runs on both engines behind one switch: `databaseDriver` in config.local.json on the drive, `PACELAB_DRIVER` in a server's environment (D-010). Live data stays on SQLite until the owner switches; `tools/pg-load.php` moves it and proves the copy. |
-| PostgreSQL on the drive (platform D-028, D-013) | The cluster is the estate's, on the portable drive: runtime `<estate>\runtime\postgresql\17`, data `<estate>\data\postgres\17`, 127.0.0.1:5433. Never a PostgreSQL installed on the computer. `tools/estate-pg.ps1` starts it from START HERE.bat and stops it from STOP SERVER.bat when the driver is pgsql; pg_dump and pg_restore come from the estate runtime. No API server: pages connect directly. |
+| **PostgreSQL** for the live data, SQLite still supported | Agreed with the project owner. The live data moved to PostgreSQL on the drive on 2026-10-11 (D-014); a copy without `databaseDriver` still runs on SQLite, and the suite runs on both. Everything goes through PDO, so keep it that way and do not write SQLite-specific SQL. |
+| One code base for both engines (platform D-027) | The PostgreSQL port, once on branch `port/postgres`, is merged into `main`. One switch picks the engine: `databaseDriver` in config.local.json on the drive, `PACELAB_DRIVER` in a server's environment (D-010). `tools/pg-load.php` moved the SQLite data and proved the copy. |
+| PostgreSQL on the drive (platform D-028, D-013) | The cluster is the estate's, on the portable drive: runtime `<estate>\runtime\postgresql\17`, data `<estate>\data\postgres\17`, 127.0.0.1:5433. Never a PostgreSQL installed on the computer. `tools/estate-pg.ps1`, the one wrapper around the estate's `estate-pg.js`, starts it from `tools/serve.ps1 start` and stops it from `tools/serve.ps1 stop` when the driver is pgsql; pg_dump and pg_restore come from the estate runtime. No API server: pages connect directly. |
 | PHP, no framework | The spec: drop into a campus web directory, no build step. |
 | Illinois toolkit from `cdn.toolkit.illinois.edu` | The one outside dependency. Approved branding; the app still works without it, just unstyled chrome. |
 | `property_tag` matches PRI Facilities | Natural key shared with that system so an instrument can be reconciled without either owning the other. |
@@ -204,11 +255,11 @@ Every decision carries a number in `reference/context/DECISIONS.md`, written onl
 ## Before you hand anything over
 
 - `node tools/check.js` ends with `CHECK OK`.
-- `BUILD FOR SERVER.bat` builds. It refuses if the tests fail, works from an
+- `tools\build-release.ps1` builds. It refuses if the tests fail, works from an
   explicit ship list, and warns about any file on neither list. Builds are
   centralized: ask the owner before running one.
-- Nothing in `data/` is in the zip, and no `.bat` is either, and neither is
-  `config.local.json`.
+- Nothing in `data/` is in the zip, and no `.bat`, `.exe` or launcher folder is
+  either, and neither is `config.local.json`.
 - `plan.md` and `handoff.md` are current in the same turn as the work.
 - On the server: run `check.php` **after** installing, before deleting it. It
   asks the server for the database over HTTP and says in capitals if the

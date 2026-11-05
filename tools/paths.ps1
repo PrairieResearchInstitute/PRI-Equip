@@ -89,37 +89,77 @@ function Get-LabBackupDir {
     return (Join-Path (Split-Path -Parent $root) 'PaCELab Equip Backups')
 }
 
-# The arguments of a shortcut that starts $launcher (a file in this folder)
-# without naming the drive (drive-invariance R5): wscript.exe runs the estate
-# launcher open-app.vbs in the harness at %SystemDrive%\Estate (a fixed folder
-# that always leads to the drive), which finds the drive under whatever letter
-# it has today. The value keeps %SystemDrive% unexpanded; Windows expands it
-# when the shortcut runs. $null when open-app.vbs is absent (another computer),
-# and then no shortcut is written.
-$LabWscript = '%SystemRoot%\System32\wscript.exe'
-function Get-LabShortcutArgs([string]$launcher, [string]$systemDrive = $env:SystemDrive) {
-    $openApp = Join-Path $systemDrive 'Estate\App_to_Migrate\harness\tools\open-app.vbs'
-    if (-not (Test-Path -LiteralPath $openApp)) { return $null }
-    $app = Split-Path -Leaf $root
-    return ('"%SystemDrive%\Estate\App_to_Migrate\harness\tools\open-app.vbs" ' + $app + ' "' + $launcher + '"')
+# The identity of a folder, not its spelling: the volume serial number and the
+# file index Windows gives it, so the estate's fixed folder (a mount of the
+# drive) and the same folder under the drive's own letter, or through a
+# junction or subst, give one answer. $null when the folder does not exist.
+# Comparing spellings as text called one folder two copies (incident
+# 2026-11-03: the old launcher refused to start, "held by the copy in" the
+# fixed-folder spelling of this very folder).
+if (-not ('LabFolderId' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+public static class LabFolderId {
+    [StructLayout(LayoutKind.Sequential)] struct FT { public uint lo, hi; }
+    [StructLayout(LayoutKind.Sequential)] struct BHFI {
+        public uint attr; public FT created, accessed, written;
+        public uint volume, sizeHi, sizeLo, links, indexHi, indexLo;
+    }
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern SafeFileHandle CreateFile(string name, uint access, uint share, IntPtr security, uint disposition, uint flags, IntPtr template);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool GetFileInformationByHandle(SafeFileHandle handle, out BHFI info);
+    public static string Of(string path) {
+        // No access rights, share everything, open existing, FILE_FLAG_BACKUP_SEMANTICS (a folder).
+        using (SafeFileHandle h = CreateFile(path, 0, 7, IntPtr.Zero, 3, 0x02000000, IntPtr.Zero)) {
+            if (h.IsInvalid) return null;
+            BHFI i;
+            if (!GetFileInformationByHandle(h, out i)) return null;
+            return i.volume.ToString("x") + ":" + i.indexHi.ToString("x") + ":" + i.indexLo.ToString("x");
+        }
+    }
+}
+'@
+}
+
+function Get-LabFolderId([string]$path) {
+    if (-not $path) { return $null }
+    try { return [LabFolderId]::Of($path.TrimEnd('\', '/') + '\') } catch { return $null }
+}
+
+# True only when both paths reach one existing folder, however each is spelled.
+function Test-LabSameFolder([string]$a, [string]$b) {
+    $x = Get-LabFolderId $a
+    return ($null -ne $x) -and ($x -eq (Get-LabFolderId $b))
+}
+
+# A path to $rel inside this application through the estate's fixed folder,
+# <system drive>\Estate\App_to_Migrate\apps\<app>, for a shortcut that names no
+# drive letter (drive-invariance R5). It keeps %SystemDrive% unexpanded, which
+# Windows expands when the shortcut runs (target and arguments alike). $null
+# unless the fixed folder really is this folder (another computer, a stale
+# mount, a copy elsewhere), and then no shortcut is written.
+function Get-LabFixedPath([string]$rel, [string]$systemDrive = $env:SystemDrive) {
+    $app   = Split-Path -Leaf $root
+    $fixed = Join-Path $systemDrive ('Estate\App_to_Migrate\apps\' + $app)
+    if (-not (Test-LabSameFolder $fixed $root)) { return $null }
+    return ('%SystemDrive%\Estate\App_to_Migrate\apps\' + $app + '\' + $rel)
 }
 
 # Which copy of the application answers on the port (drive-invariance R6).
 # $body is what /health.php returned; its "root" is the folder that server
-# serves. 'mine' only when that folder is this copy's own root, so a launcher
-# never opens a server another copy started (the OneDrive original, an old
-# drive letter). Anything else that answers is 'other', with the root it
-# named, or '' when it named none.
+# serves. 'mine' only when that folder is this copy's own folder by identity
+# (Test-LabSameFolder), so a launcher never opens a server another copy started
+# (the OneDrive original, an old drive letter) and never refuses this folder
+# reached through another spelling. Anything else that answers is 'other',
+# with the root it named, or '' when it named none.
 function Compare-LabServerRoot([string]$body, [string]$mine) {
     $reported = ''
     try { $reported = [string](($body | ConvertFrom-Json).root) } catch { $reported = '' }
     if (-not $reported) { return @{ state = 'other'; root = '' } }
-    $norm = {
-        param($p)
-        try { $p = [IO.Path]::GetFullPath($p) } catch { }
-        return $p.TrimEnd('\', '/')
-    }
-    if ([string]::Equals((& $norm $reported), (& $norm $mine), [StringComparison]::OrdinalIgnoreCase)) {
+    if (Test-LabSameFolder $reported $mine) {
         return @{ state = 'mine'; root = $reported }
     }
     return @{ state = 'other'; root = $reported }

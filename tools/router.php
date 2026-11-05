@@ -1,6 +1,6 @@
 <?php
 /**
- * tools/router.php: the router for PHP's built-in server (tools/supervisor.ps1).
+ * tools/router.php: the router for PHP's built-in server (the supervisor in tools/serve.ps1).
  *
  * The built-in server hands out any file under its document root that is not
  * a PHP script, dotfiles included: a request for /.env returned the file

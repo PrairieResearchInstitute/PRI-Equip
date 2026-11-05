@@ -1,26 +1,30 @@
 {
   "title": "PaCELab Equip: Shared Laboratory Equipment System",
-  "summary": "A PHP and SQLite web application that records equipment use in a shared laboratory, charges each use to a grant account, prevents scheduling conflicts, and produces the monthly charge report for the business office.",
+  "summary": "A PHP web application on PostgreSQL (or SQLite) that records equipment use in a shared laboratory, charges each use to a grant account, prevents scheduling conflicts, and produces the monthly charge report for the business office.",
   "version": "1.0.0",
   "requirements": [
-    "Windows 10 or 11 for the drive copy; the bundled PHP in tools\\php runs it, so nothing else is installed",
-    "On a campus server: PHP 8.0 or later with pdo_sqlite (or pdo_pgsql for PostgreSQL) and a folder the web server can write to"
+    "Windows 10 or 11 for the drive copy; the bundled PHP in tools\\php and the estate's PostgreSQL on the drive run it, so nothing is installed on the computer and no PHP on the computer is used",
+    "Start it from a normal window, never with Run as administrator: PostgreSQL refuses to run under an administrator account",
+    "On a campus server: PHP 8.0 or later with pdo_pgsql (or pdo_sqlite) and a folder the web server can write to"
   ],
   "install": [
     "Plug in the drive and open the application folder under apps\\pacelab-equip.",
-    "Double-click SETUP.bat. It creates config.local.json, points the data folder at ..\\..\\data\\pacelab-equip\\data, then runs SETUP ON THIS PC.bat, which adds the logon and Desktop shortcuts for this folder and starts the server.",
-    "Open http://localhost:8147/ in a browser."
+    "Double-click SETUP.bat. It creates config.local.json, points the data folder at ..\\..\\data\\pacelab-equip\\data, then runs tools\\setup-machine.ps1, which checks the bundled PHP and starts the server. It writes nothing on the computer.",
+    "Double-click PaCELab Equip.exe, or open http://127.0.0.1:8147/ in a browser.",
+    "To start it at logon, run this once in PowerShell on each computer; it makes the shortcut Shared Lab Equipment in your Startup folder, replacing any older one, with its target through the estate's fixed folder: $s = New-Object -ComObject WScript.Shell; $l = $s.CreateShortcut((Join-Path ([Environment]::GetFolderPath('Startup')) 'Shared Lab Equipment.lnk')); $l.TargetPath = \"$env:SystemDrive\\Estate\\App_to_Migrate\\apps\\pacelab-equip\\PaCELab Equip.exe\"; $l.WorkingDirectory = \"$env:SystemDrive\\Estate\\App_to_Migrate\\apps\\pacelab-equip\"; $l.Arguments = ''; $l.Save()"
   ],
   "run": [
-    "Double-click the Shared Lab Equipment shortcut on the Desktop (no window) or START HERE.bat. Either starts the server when it is down and opens the browser.",
-    "STOP SERVER.bat stops this application's server and nothing else. RUN TESTS.bat runs the regression suite against a scratch database."
+    "Double-click PaCELab Equip.exe in the application folder, or the Shared Lab Equipment shortcut on the Desktop. Either starts PostgreSQL on the drive and the server when they are down and opens the browser; a problem appears in a message box.",
+    "Double-click Stop PaCELab Equip.exe to stop this application's server and nothing else, then PostgreSQL on the drive unless another application still uses it. Do this before unplugging the drive.",
+    "Every other action is one PowerShell command in the application folder, written powershell -NoProfile -ExecutionPolicy Bypass -File followed by: tools\\serve.ps1 status (is it running), tools\\run-tests.ps1 (the regression suite against a scratch database), tools\\backup.ps1 -Now (a backup now, proved by a restore), tools\\reset-admin-password.ps1 (an administrator is locked out), tools\\build-release.ps1 -Open (the zip for the campus server)."
   ],
   "settings": [
-    { "key": "dataFolder", "meaning": "The folder holding lab.sqlite, the installer lock and the logs, relative to the application folder: ..\\..\\data\\pacelab-equip\\data on the drive. Empty means data\\ inside the application folder." },
+    { "key": "dataFolder", "meaning": "The folder holding the installer lock, the logs and lab.sqlite, relative to the application folder: ..\\..\\data\\pacelab-equip\\data on the drive. Empty means data\\ inside the application folder." },
     { "key": "backupFolder", "meaning": "Where the daily backups go, relative to the application folder: ..\\..\\data\\pacelab-equip\\backups on the drive." },
-    { "key": "PACELAB_DRIVER and PG*", "meaning": "On a server only, in the environment (env.template.txt lists them): pgsql and the PostgreSQL connection. Unset means SQLite." }
+    { "key": "databaseDriver", "meaning": "pgsql on the drive: the pacelab database on the estate's PostgreSQL, 127.0.0.1 port 5433, with its settings in pg.env beside the data folder. sqlite, or empty, means lab.sqlite in the data folder." },
+    { "key": "PACELAB_DRIVER and PG*", "meaning": "On a server, in the environment (env.template.txt lists them): pgsql and the PostgreSQL connection. Unset means the value in config.local.json, then SQLite." }
   ],
-  "data": "The database lives outside the application folder, in data\\pacelab-equip\\data on the drive, named by config.local.json. It is never stored in git. Without config.local.json the application uses data\\ in its own folder, as it always did.",
-  "backups": "While the server runs, the supervisor takes one backup a day with SQLite's VACUUM INTO, reads it back and counts its rows, and keeps 60 days in data\\pacelab-equip\\backups. BACK UP NOW.bat takes one on demand and proves it restores.",
+  "data": "The data lives outside the application folder: the pacelab database on the estate's PostgreSQL on the drive, and data\\pacelab-equip\\data for the installer lock and the logs, named by config.local.json. Neither is ever stored in git. Without config.local.json the application uses SQLite in data\\ in its own folder, as it always did.",
+  "backups": "While the server runs, it takes one backup a day (pg_dump on PostgreSQL, VACUUM INTO on SQLite), restores or reads it back and counts its rows before keeping it, and keeps 60 days in data\\pacelab-equip\\backups. tools\\backup.ps1 -Now takes one on demand and proves it restores.",
   "support": "M. J. Dreslik"
 }

@@ -47,8 +47,10 @@ docs
 scripts
 **/*.md
 **/*.bat
-**/*.vbs
+**/*.exe
 **/*.ps1
+launcher
+launcher-stop
 tools/check.js
 tools/config.php
 seed-demo.php

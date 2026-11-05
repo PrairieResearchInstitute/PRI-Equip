@@ -108,7 +108,7 @@ function db_pg_error_kind(Throwable $e): string
         'no password supplied'           => 'no password was supplied (PGPASSWORD is empty)',
         'role "'                         => 'the role does not exist (PGUSER)',
         'database "'                     => 'the database does not exist',
-        'connection refused'             => 'nothing answered at PGHOST:PGPORT (is PostgreSQL on the drive running? START HERE.bat starts it)',
+        'connection refused'             => 'nothing answered at PGHOST:PGPORT (is PostgreSQL on the drive running? PaCELab Equip.exe starts it)',
         'could not translate host'       => 'PGHOST does not resolve',
         'timeout'                        => 'the connection timed out',
         'permission denied'              => 'the role may not connect to this database',
@@ -189,7 +189,7 @@ function db(): PDO
             // The message is deliberately vague: a connection error can
             // otherwise print the host and user to the browser.
             error_log('db(): PostgreSQL connection failed: ' . get_class($e));
-            db_refuse('The database could not be reached. Check that PostgreSQL on the drive is running (START HERE.bat starts it) and the PG* settings (pg.env beside the data folder, or .env).');
+            db_refuse('The database could not be reached. Check that PostgreSQL on the drive is running (PaCELab Equip.exe starts it) and the PG* settings (pg.env beside the data folder, or .env).');
         }
         return $pdo;
     }

@@ -7,8 +7,12 @@ REM  2. When the drive data folder ..\..\data\pacelab-equip\data exists, points
 REM     dataFolder at it and backupFolder at ..\..\data\pacelab-equip\backups,
 REM     through tools\config.php (the loader's own save). A value already set
 REM     is left alone.
-REM  3. Runs "SETUP ON THIS PC.bat": the logon and Desktop shortcuts for this
-REM     folder, and the server start.
+REM  3. Runs tools\setup-machine.ps1: checks the bundled PHP and starts the
+REM     server (tools\serve.ps1 start). It writes nothing on the computer; the
+REM     logon shortcut is the owner's one command in AGENTS.md and README.docx.
+REM
+REM  After setup, PaCELab Equip.exe starts the application and opens it, and
+REM  Stop PaCELab Equip.exe (or tools\serve.ps1 stop) stops it.
 REM
 REM  SETUP.bat /config-only does steps 1 and 2 and stops.
 REM  Every path is relative to this file, so the drive letter does not matter.
@@ -17,12 +21,12 @@ REM ===========================================================================
 setlocal
 cd /d "%~dp0"
 
+REM The bundled PHP only, never one installed on the computer.
 set "PHPDIR=%~dp0tools\php\"
-if not exist "%PHPDIR%php.exe" set "PHPDIR=%LOCALAPPDATA%\php83\"
 if not exist "%PHPDIR%php.exe" (
   echo.
-  echo   PHP was not found in tools\php or %%LOCALAPPDATA%%\php83.
-  echo   Copy the bundled PHP into tools\php and run this again.
+  echo   The bundled PHP is missing from tools\php.
+  echo   Copy tools\php into this folder from the drive and run this again.
   echo.
   pause
   exit /b 1
@@ -46,8 +50,11 @@ echo.
 
 if /i "%~1"=="/config-only" exit /b 0
 
-call "%~dp0SETUP ON THIS PC.bat"
-exit /b %errorlevel%
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\setup-machine.ps1"
+set "RESULT=%errorlevel%"
+echo.
+pause
+exit /b %RESULT%
 
 :failed
 echo.

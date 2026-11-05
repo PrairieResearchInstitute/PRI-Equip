@@ -3,9 +3,9 @@
   "configurations": [
     {
       "name": "lab-equipment",
-      "runtimeExecutable": "${env:LOCALAPPDATA}/php83/php.exe",
-      "runtimeArgs": ["-S", "localhost:8080", "-t", "."],
-      "port": 8080
+      "runtimeExecutable": "tools/php/php.exe",
+      "runtimeArgs": ["-c", "tools/php/php.ini", "-d", "extension_dir=tools/php/ext", "-S", "127.0.0.1:8148", "-t", ".", "tools/router.php"],
+      "port": 8148
     }
   ]
 }

@@ -668,8 +668,8 @@ if (lab_data_folder_configured()) {
 
 // The server launcher has to pass the folder to PHP: resolving it is not the
 // same as using it, and nothing else would notice if the flags went missing.
-$sup = (string) file_get_contents(APP_ROOT . '/tools/supervisor.ps1');
-ok('the supervisor points PHP sessions, uploads and temp at that folder',
+$sup = (string) file_get_contents(APP_ROOT . '/tools/serve.ps1');
+ok('the supervisor in tools/serve.ps1 points PHP sessions, uploads and temp at that folder',
     strpos($sup, 'session.save_path=') !== false
     && strpos($sup, 'upload_tmp_dir=') !== false
     && strpos($sup, 'sys_temp_dir=') !== false
@@ -1218,7 +1218,7 @@ ok('tools/backup.ps1 hands a PostgreSQL installation to tools/pg-backup.php',
 ok('and stops, rather than guess SQLite, when it cannot read the driver',
     (bool) preg_match('/brace -lt 0\) \{ throw /', $backupPs));
 ok('the supervisor counts a PostgreSQL dump as today\'s backup',
-    str_contains((string) file_get_contents(APP_ROOT . '/tools/supervisor.ps1'), "'.pgdump'"));
+    str_contains((string) file_get_contents(APP_ROOT . '/tools/serve.ps1'), "'.pgdump'"));
 
 // PostgreSQL lives on the drive, never on the computer (platform D-028, D-013):
 // the estate cluster on 127.0.0.1:5433, its client programs from the estate's
@@ -1246,9 +1246,60 @@ if (preg_match('/5432|Program Files|ProgramFiles|postgresql-x64|\b[A-Za-z]:\\\\/
 }
 ok('tools/estate-pg.ps1 mirrors estate-pg.js (port 5433, the drive\'s data folder, a fast clean stop) and names no drive letter',
     $epgWrong === [], implode(', ', $epgWrong));
-ok('the launchers start the drive\'s cluster (ensure-running.ps1) and stop it after the server (stop.ps1)',
-    str_contains((string) file_get_contents(APP_ROOT . '/tools/ensure-running.ps1'), "'estate-pg.ps1') start")
-    && str_contains((string) file_get_contents(APP_ROOT . '/tools/stop.ps1'), "'estate-pg.ps1') stop"));
+$serve = (string) @file_get_contents(APP_ROOT . '/tools/serve.ps1');
+ok('tools/serve.ps1 starts the drive\'s cluster through estate-pg.ps1 and stops it after the server',
+    str_contains($serve, "'estate-pg.ps1'") && str_contains($serve, "Invoke-EstatePg 'start'")
+    && str_contains($serve, "Invoke-EstatePg 'stop'")
+    && strpos($serve, "Invoke-EstatePg 'stop'") > strpos($serve, 'Stop-Process -Id $p.ProcessId'));
+ok('nothing but tools/estate-pg.ps1 runs pg_ctl or estate-pg.js, and neither refuses to say why under an administrator account',
+    !preg_match('/pg_ctl|estate-pg\.js/i', $serve)
+    && str_contains($serve, 'administrator window') && str_contains($epgPs, 'administrator window'));
+
+// One way to start the application (owner ruling 2026-11-03, skill
+// drez-local-php-runner): SETUP.bat and the two launchers built from
+// launcher\ and launcher-stop\, no other .bat, .cmd or .vbs at the root, and
+// tools/serve.ps1 the one owner of the server.
+$rootScripts = array_values(array_filter(scandir(APP_ROOT) ?: [],
+    fn ($f) => preg_match('/\.(bat|cmd|vbs)$/i', $f) && strcasecmp($f, 'SETUP.bat') !== 0));
+ok('the application folder holds no .bat, .cmd or .vbs other than SETUP.bat',
+    $rootScripts === [], implode(', ', $rootScripts));
+ok('tools/serve.ps1 exists, and the old launcher scripts it replaced are gone',
+    $serve !== '' && !array_filter(['ensure-running.ps1', 'start-server.ps1', 'stop.ps1', 'supervisor.ps1'],
+        fn ($f) => is_file(APP_ROOT . '/tools/' . $f)));
+$launchIni = (string) @file_get_contents(APP_ROOT . '/launcher/launcher.ini');
+$stopIni = (string) @file_get_contents(APP_ROOT . '/launcher-stop/launcher.ini');
+ok('launcher.ini runs "{app}\tools\serve.ps1" start, and launcher-stop runs its stop',
+    str_contains($launchIni, 'exe=PaCELab Equip.exe')
+    && str_contains($launchIni, 'run=powershell -NoProfile -ExecutionPolicy Bypass -File "{app}\tools\serve.ps1" start')
+    && str_contains($launchIni, 'require=tools\php\php.exe|') && str_contains($launchIni, 'require=config.local.json|')
+    && str_contains($stopIni, '-File "{app}\tools\serve.ps1" stop'));
+ok('tools/serve.ps1 binds 127.0.0.1, never localhost, and quotes the folder it hands to Start-Process',
+    str_contains($serve, "'-S', \"127.0.0.1:\$Port\"") && !preg_match('/localhost:/i', $serve)
+    && str_contains($serve, "'-t', ('\"' + \$root + '\"')") && str_contains($serve, "'-File', ('\"' + \$PSCommandPath + '\"')"));
+// A folder check that compares spellings as text calls the estate's fixed
+// folder and the drive-letter path two copies (incident 2026-11-03). Both the
+// server check and the process matches go through Test-LabSameFolder.
+$pathsPs = (string) file_get_contents(APP_ROOT . '/tools/paths.ps1');
+preg_match('/function Compare-LabServerRoot.*?\n}/s', $pathsPs, $cmp);
+ok('the folder-identity check compares file IDs, never the spelling of two paths',
+    str_contains($pathsPs, 'GetFileInformationByHandle') && isset($cmp[0])
+    && str_contains($cmp[0], 'Test-LabSameFolder') && !preg_match('/Equals|-eq|-like|OrdinalIgnoreCase|GetFullPath/i', $cmp[0])
+    && substr_count($serve, 'Test-LabSameFolder') >= 2 && !preg_match('/-like\s+"\*\$root\*"/', $serve));
+// Everything from the drive, nothing from the computer (owner, 2026-10-20 and
+// 2026-11-03): no script reads APPDATA, LOCALAPPDATA or the Startup folder,
+// falls back to a PHP installed on the computer, or puts scratch in the
+// computer's temp folder. A logon shortcut is the owner's step (AGENTS.md).
+$computerReads = '/\$env:(LOCAL)?APPDATA|%(LOCAL)?APPDATA%|process\.env\.(LOCAL)?APPDATA|getenv\(\s*[\'"](LOCAL)?APPDATA'
+    . '|GetFolderPath\s*\(|shell:startup|Programs\\\\Startup|php83|GetTempPath|os\.tmpdir/i';
+$computerHits = [];
+foreach (array_merge(glob(APP_ROOT . '/tools/*.{ps1,js,php}', GLOB_BRACE) ?: [], glob(APP_ROOT . '/tests/*.ps1') ?: [],
+                     glob(APP_ROOT . '/includes/*.php') ?: [], glob(APP_ROOT . '/*.php') ?: [], [APP_ROOT . '/SETUP.bat']) as $f) {
+    if (is_file($f) && preg_match($computerReads, (string) file_get_contents($f), $hit)) {
+        $computerHits[] = basename($f) . ' (' . $hit[0] . ')';
+    }
+}
+ok('no script reads APPDATA, LOCALAPPDATA or the Startup folder, or uses a PHP or temp folder of the computer',
+    $computerHits === [], implode(', ', $computerHits));
 $showOut =shell_exec(escapeshellarg(PHP_BINARY) . ' ' . (php_ini_loaded_file() ? '-c ' . escapeshellarg((string) php_ini_loaded_file()) . ' ' : '')
     . '-d ' . escapeshellarg('extension_dir=' . ini_get('extension_dir')) . ' ' . escapeshellarg(APP_ROOT . '/tools/config.php') . ' show --json');
 $show = json_decode(substr((string) $showOut, (int) strpos((string) $showOut, '{')), true);
@@ -1272,7 +1323,7 @@ ok('every include and every numbered migration is on the ship list', $unshipped 
 require_once APP_ROOT . '/tools/router.php';
 $mustDeny = ['/.env', '/.ENV', '/%2eenv', '/.git/config', '/data/lab.sqlite', '/DATA./lab.sqlite',
              '/tools/php/php.ini', '/migrations/0001_baseline.pgsql.sql', '/config.local.json',
-             '/tests/run-tests.php', '/START%20HERE.bat', '/admin/../.env', '/MIGRAT~1/x.sql', '/x.pgdump'];
+             '/tests/run-tests.php', '/SETUP.bat', '/launcher/launcher.ini', '/admin/../.env', '/MIGRAT~1/x.sql', '/x.pgdump'];
 $mustAllow = ['/', '/index.php', '/report.php?from=2026-01-01', '/admin/login.php', '/assets/style.css',
               '/assets/calendar.js', '/health.php?db=1', '/api.php'];
 $wrong = array_merge(
@@ -1281,8 +1332,8 @@ $wrong = array_merge(
 );
 ok('the built-in server refuses dotfiles, data, tools, tests and migrations, and serves the pages and assets',
     $wrong === [], implode(', ', $wrong));
-ok('and the supervisor starts it with that router',
-    str_contains((string) file_get_contents(APP_ROOT . '/tools/supervisor.ps1'), "'router.php'"));
+ok('and the supervisor in tools/serve.ps1 starts it with that router',
+    str_contains((string) file_get_contents(APP_ROOT . '/tools/serve.ps1'), "'router.php'"));
 
 // ---------------------------------------------------------------------------
 heading('NetID identity: the campus proxy says who, role grants say what (D-015)');

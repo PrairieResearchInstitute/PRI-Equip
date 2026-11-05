@@ -7,6 +7,10 @@ out/
 build/
 *.dll
 *.exe
+# The two launchers at the root are built from launcher\ and launcher-stop\ and
+# travel with the folder (platform D-037); every other .exe stays out.
+!/PaCELab Equip.exe
+!/Stop PaCELab Equip.exe
 .env
 .env.*
 api-keys.txt

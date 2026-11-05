@@ -1,13 +1,14 @@
 # Putting this on the server
 
-The application is 33 files and 398 KB. There is nothing to compile, no package
+The application is 53 files and about 600 KB. There is nothing to compile, no package
 manager, and no dependencies to fetch. You unzip a folder and open it in a
 browser.
 
 ## Getting the package
 
-Double-click **`BUILD FOR SERVER.bat`**. It runs the tests, refuses to build if
-any fail, and writes `dist\shared-lab-equipment-<date>.zip`.
+Run **`powershell -NoProfile -ExecutionPolicy Bypass -File tools\build-release.ps1 -Open`**
+in the application folder. It runs the tests, refuses to build if any fail,
+writes `dist\shared-lab-equipment-<date>.zip` and opens `dist\`.
 
 **Give IT that zip.** Do not give them the working folder: it carries 84 MB of
 Windows PHP, a local test database, and a script that invents fake charges.
@@ -41,7 +42,7 @@ and walking every screen. It came up clean, with no PHP diagnostics of any kind.
 |---|---|
 | `tools/` | 84 MB of Windows PHP. The server has its own. |
 | `data/` | Your local database and its install lock. Copying it would put local test data on the server, and the lock would stop the installer. |
-| `START HERE.bat`, `RUN TESTS.bat`, `BUILD FOR SERVER.bat` | Windows launchers. Meaningless on a web server. |
+| `SETUP.bat`, `PaCELab Equip.exe`, `Stop PaCELab Equip.exe`, `launcher/`, `launcher-stop/` | Windows setup and launchers. Meaningless on a web server. |
 | `seed-demo.php` | Creates fake instruments and charges. Do not put this where anybody can reach it. |
 | `tests/` | Optional. Harmless, but it belongs with the source rather than on the server. |
 | `.git/`, `.claude/`, `.gitignore`, `.gitattributes` | Not part of the application. |
@@ -170,10 +171,12 @@ listening on 127.0.0.1 port 5433, with this application's own role
 `pacelab_app` and databases `pacelab` and `pacelab_test`. `pg.env` beside the
 data folder carries `PGPORT=5433`; with PGHOST and PGPORT empty the
 application uses 127.0.0.1:5433 anyway. When the driver is pgsql,
-`START HERE.bat` (and the logon and Desktop shortcuts) start the
-cluster unless it runs, and `STOP SERVER.bat` stops it with a fast, clean
+`PaCELab Equip.exe` (and the owner's logon shortcut to it), through
+`tools\serve.ps1 start`, start the cluster unless it runs, and
+`Stop PaCELab Equip.exe` (`tools\serve.ps1 stop`) stops it with a fast, clean
 shutdown unless another application is still connected; run it before
-unplugging the drive. Both go through `tools\estate-pg.ps1`, which runs the
+unplugging the drive, from a normal window (PostgreSQL refuses an
+administrator account). Both go through `tools\estate-pg.ps1`, which runs the
 estate's `estate-pg.js` when a Node exists and the same `pg_ctl` steps when it
 does not. The cluster itself is created once by `node estate-pg.js init`
 (the PRI Suite session), never by this application. There is no API server:
@@ -209,7 +212,8 @@ and compares every row field by field and by checksum. Anything but
 actually performed before the first one is trusted. On the drive copy
 `tools/backup.ps1` does this itself once the driver is PostgreSQL (through
 `tools/pg-backup.php`: dump, `pg_restore --list`, restore into the test
-database, compare row counts), and `BACK UP NOW.bat` runs the drill.
+database, compare row counts), and `tools\backup.ps1 -Now` takes one and runs
+the drill.
 
 **Health.** `health.php?db=1` answers `{"db":"ok"}` when PostgreSQL answers
 and 503 when it does not.
@@ -311,13 +315,13 @@ the approved branding rather than a copy of it that goes stale.
 
 ## Before any change goes up
 
-Double-click `RUN TESTS.bat`, or run
+On the drive copy run `powershell -File tools\run-tests.ps1`; on a server run
 
 ```bash
 php tests/run-tests.php
 ```
 
-110 checks. It builds a scratch database in the temporary folder and never opens
+283 checks on SQLite. It builds a scratch database in the temporary folder and never opens
 `data/lab.sqlite`, so it is safe to run against a live installation.
 
 ## If the administrator password is lost

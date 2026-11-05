@@ -59,7 +59,7 @@ owned:
       radiant-backup.sh nightly at 02:30: pg_dump -Fc of pacelab_live and
       pacelab_test to Taiga, SHA-256 sidecar, restore into a scratch database with a
       row-count compare. On the drive until the move: platform/scripts/pg-nightly-backup.js,
-      plus the app's own BACK UP NOW.bat (tools/backup.ps1 hands over to
+      plus the app's own tools/backup.ps1 -Now (it hands over to
       tools/pg-backup.php, pg_dump -Fc with a restore drill).
     retention: >
       ladder of 7 daily, 4 weekly (Sunday) and 6 monthly verified dumps. Rows are

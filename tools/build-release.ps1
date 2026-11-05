@@ -6,8 +6,24 @@
 # build says so rather than quietly leaving it out.
 #
 # Refuses to build if the tests do not pass.
+#
+#     powershell -NoProfile -ExecutionPolicy Bypass -File tools\build-release.ps1 [-Open]
+#
+# (replaces BUILD FOR SERVER.bat; -Open opens dist\ when the build succeeds.)
+# Give IT the zip. Do NOT give them this folder: it carries the Windows PHP,
+# the local test database and a script that invents fake charges, none of
+# which belong on a university server.
+
+param([switch]$Open)
 
 $ErrorActionPreference = 'Stop'
+trap {
+    Write-Host ''
+    Write-Host "  $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host '  The build did not finish.' -ForegroundColor Red
+    Write-Host ''
+    exit 1
+}
 
 $root    = Split-Path -Parent $PSScriptRoot
 $stamp   = Get-Date -Format 'yyyy-MM-dd'
@@ -17,8 +33,7 @@ $out     = Join-Path $dist $name
 $php     = Join-Path $root 'tools\php\php.exe'
 $phpDir  = Join-Path $root 'tools\php'
 
-if (-not (Test-Path $php)) { $php = Join-Path $env:LOCALAPPDATA 'php83\php.exe'; $phpDir = Join-Path $env:LOCALAPPDATA 'php83' }
-if (-not (Test-Path $php)) { throw "PHP was not found. Looked in tools\php and $env:LOCALAPPDATA\php83." }
+if (-not (Test-Path $php)) { throw "The bundled PHP is missing ($php). Run SETUP.bat, or copy tools\php into this folder from the drive." }
 
 # --- The tests have to pass first -------------------------------------------
 Write-Host ''
@@ -59,10 +74,8 @@ $files = @(
 # --- What must never ship ----------------------------------------------------
 # Named rather than merely omitted, so that a mistake is loud.
 $forbidden = @('seed-demo.php', 'data', 'tools', '.git', '.github', '.claude', 'tests',
-               'START HERE.bat', 'RUN TESTS.bat', 'BUILD FOR SERVER.bat',
-               'FORGOT ADMIN PASSWORD.bat', 'STOP SERVER.bat',
-               'SETUP ON THIS PC.bat', 'BACK UP NOW.bat', 'AGENTS.md',
-               'SETUP.bat', 'config.local.json', 'config.local.json.tmp',
+               'PaCELab Equip.exe', 'Stop PaCELab Equip.exe', 'launcher', 'launcher-stop',
+               'AGENTS.md', 'SETUP.bat', 'README.docx', 'config.local.json', 'config.local.json.tmp',
                'reference', 'Migration',
                'Dockerfile', '.dockerignore', 'compose.yaml')
 
@@ -145,3 +158,4 @@ if ($unaccounted.Count -gt 0) {
 }
 Write-Host '  Give the zip to IT. DEPLOY.md inside it tells them what to do.'
 Write-Host ''
+if ($Open) { Start-Process $dist }

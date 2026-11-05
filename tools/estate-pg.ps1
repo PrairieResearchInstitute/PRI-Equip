@@ -7,9 +7,11 @@
 # <estate>\runtime\postgresql\17, one cluster in <estate>\data\postgres\17,
 # listening on 127.0.0.1 port 5433. An application starts the cluster when it
 # opens and stops it cleanly when it quits, unless another application is still
-# connected. tools\ensure-running.ps1 (START HERE.bat, the Desktop shortcut, the
-# logon shortcut) calls "start"; tools\stop.ps1 (STOP SERVER.bat) calls "stop"
-# after the PHP server has gone, so this application holds no connection.
+# connected. tools\serve.ps1 start (PaCELab Equip.exe, the Desktop and logon
+# shortcuts) calls "start"; tools\serve.ps1 stop (Stop PaCELab Equip.exe) calls
+# "stop" after the PHP server has gone, so this application holds no connection.
+# It is the one wrapper: nothing else in this application starts or stops
+# PostgreSQL, and it never runs init or reads superuser.env or pg.env.
 #
 # Nothing happens unless the application runs on PostgreSQL (driver pgsql from
 # tools\config.php show) inside the estate (a folder above holds .estate-live).
@@ -45,6 +47,15 @@ if ($Action -notin @('start', 'stop', 'status')) {
 }
 
 $root = Split-Path -Parent $PSScriptRoot
+
+# PostgreSQL refuses to start under an administrator account, and its own
+# error reads like a broken install. Say it plainly instead.
+$elevated = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+    [Security.Principal.WindowsBuiltInRole]::Administrator)
+if ($Action -eq 'start' -and $elevated) {
+    Write-Host '  PostgreSQL will not run in an administrator window. Close this window and start PaCELab Equip from a normal one (not "Run as administrator").' -ForegroundColor Red
+    exit 1
+}
 $PgHost = '127.0.0.1'
 $PgPort = 5433
 
@@ -52,10 +63,9 @@ function Say([string]$m, [string]$color = '') {
     if ($color) { Write-Host "  $m" -ForegroundColor $color } else { Write-Host "  $m" }
 }
 
-# The bundled PHP, as the supervisor and backup.ps1 find it.
+# The bundled PHP only, as serve.ps1 and backup.ps1 use it; never one on the computer.
 $phpDir = Join-Path $root 'tools\php'
 $php    = Join-Path $phpDir 'php.exe'
-if (-not (Test-Path -LiteralPath $php)) { $phpDir = Join-Path $env:LOCALAPPDATA 'php83'; $php = Join-Path $phpDir 'php.exe' }
 $phpArgs = @('-c', (Join-Path $phpDir 'php.ini'), '-d', "extension_dir=$(Join-Path $phpDir 'ext')")
 
 function Get-Driver {
@@ -156,7 +166,7 @@ if (-not $initialized -or -not (Test-Running)) { Say 'PostgreSQL on the drive is
 $count = (& $php @phpArgs (Join-Path $PSScriptRoot 'pg-status.php') --other-sessions 2>&1) -join ' '
 $countCode = $LASTEXITCODE
 if ($countCode -ne 0 -or $count.Trim() -notmatch '^\d+$') {
-    Say "PostgreSQL on the drive left running: the open sessions could not be counted ($($count.Trim())). Run STOP SERVER.bat again, or node estate-pg.js stop where Node exists, before unplugging the drive." Red
+    Say "PostgreSQL on the drive left running: the open sessions could not be counted ($($count.Trim())). Run tools\serve.ps1 stop again, or node estate-pg.js stop where Node exists, before unplugging the drive." Red
     exit 1
 }
 if ([int]$count.Trim() -gt 0) {

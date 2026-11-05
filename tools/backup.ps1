@@ -11,20 +11,38 @@
 #
 #     powershell -File tools\backup.ps1            normal nightly copy
 #     powershell -File tools\backup.ps1 -Restore   prove one can be restored
+#     powershell -File tools\backup.ps1 -Now       take one now, then prove the
+#                                                  newest restores (before
+#                                                  anything risky; replaces
+#                                                  BACK UP NOW.bat)
+#
+# The supervisor (tools\serve.ps1) takes one a day while the server runs, so
+# -Now is seldom needed.
 #
 # Destination: the path in backup-path.txt in the data folder if present, then
 # backupFolder in config.local.json, then <data folder>\backups when
 # config.local.json names a data folder, otherwise a folder beside the
 # application. Point it at Taiga once this is on the server.
 
-param([switch]$Restore, [int]$KeepDays = 60)
+param([switch]$Restore, [switch]$Now, [int]$KeepDays = 60)
 
 $ErrorActionPreference = 'Stop'
+
+if ($Now) {
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath -KeepDays $KeepDays
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    Write-Host ''
+    Write-Host '  Now proving the newest backup can be restored...'
+    Write-Host ''
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath -Restore
+    exit $LASTEXITCODE
+}
 
 $root   = Split-Path -Parent $PSScriptRoot
 $phpDir = Join-Path $root 'tools\php'
 $php    = Join-Path $phpDir 'php.exe'
-if (-not (Test-Path $php)) { $phpDir = Join-Path $env:LOCALAPPDATA 'php83'; $php = Join-Path $phpDir 'php.exe' }
+# The bundled PHP only, never one installed on the computer.
+if (-not (Test-Path -LiteralPath $php)) { throw "The bundled PHP is missing ($php). Run SETUP.bat, or copy tools\php into this folder from the drive." }
 
 # On PostgreSQL the SQLite file still exists but the application no longer
 # writes it, so a VACUUM INTO copy would succeed every night while saving
@@ -107,10 +125,11 @@ if ($Restore) {
     if (-not $newest) { throw "No backup found in $dest" }
 
     Note "restore drill using $($newest.Name)"
-    # On the drive, not %TEMP% on C: (owner standard B, D-007). The folder sits
-    # beside the data folder, so a drill copy is never inside what gets backed up.
+    # On the drive, never the computer's temp folder (owner standard B, D-007).
+    # The folder sits beside the data folder, so a drill copy is never inside
+    # what gets backed up; without a data folder, data\tmp in this folder.
     $drillDir = Get-LabTempDir
-    if (-not $drillDir) { $drillDir = [IO.Path]::GetTempPath() }
+    if (-not $drillDir) { $drillDir = Join-Path $root 'data\tmp' }
     New-Item -ItemType Directory -Force -Path $drillDir | Out-Null
     $scratch = Join-Path $drillDir ("restore-drill-{0}.sqlite" -f $PID)
     Copy-Item $newest.FullName $scratch -Force
